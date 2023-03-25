@@ -37,6 +37,7 @@ class BatchProcessor(object):
 
         # TODO: FBX checkbox
         self.fbx_only = False
+        self.allow_stretching = False
 
         # TODO: Log file
         self.log_file = ""
@@ -243,13 +244,17 @@ class BatchProcessor(object):
                 file_found = False in hidden
                 self.filtered = not file_found
                 if file_found:
-                    cmds.rowLayout(self.ui, e=True, visible=not self.collapsed)
+                    if self.collapsed:
+                        self._collapse()
+                    cmds.rowLayout(self.ui, e=True, visible=True)
                 else:
+                    if not self.collapsed:
+                        self._collapse()
                     cmds.rowLayout(self.ui, e=True, visible=False)
                 return not file_found
 
             else:
-                if filter_str not in self.name:
+                if filter_str.casefold() not in self.name.casefold():
                     self.filtered = True
                     cmds.rowLayout(self.ui, e=True, visible=False)
                     return True
@@ -327,7 +332,7 @@ class BatchProcessor(object):
         cmds.formLayout(main_layout, e=True,
                         attachForm=[(file_layout, "left", 10), (file_layout, "top", 10),
                                     (settings_layout, "right", 10), (settings_layout, "top", 10),
-                                    (separator, "top", 10), (separator, "bottom", 10)],
+                                    (separator, "top", 10), (separator, "bottom", 5)],
                         attachControl=[(file_layout, "right", 15, separator),
                                        (separator, "right", 15, settings_layout)])
 
@@ -364,20 +369,22 @@ class BatchProcessor(object):
 
         cmds.separator(p=file_layout, h=15)
 
-        search = cmds.formLayout(h=40, p=file_layout)
+        search = cmds.formLayout(p=file_layout)
         search_label = cmds.text(l="Search files:", font="boldLabelFont", h=20)
         search_field = cmds.textField(h=20)
-        # TODO: Button to add to selection
         cmds.textField(search_field, e=True, cc=lambda _: self._folder_structure.filter(search_field, filter_error))
+        sel_filter_button = cmds.button(l="Add filtered to selection")
         cmds.formLayout(search, e=True, attachForm=[(search_label, "left", 10), (search_field, "right", 5),
-                                                    (search_label, "top", 0), (search_field, "top", 0)],
-                        attachControl=[(search_field, "left", 15, search_label)])
+                                                    (search_label, "top", 0), (search_field, "top", 0),
+                                                    (sel_filter_button, "right", 5), (sel_filter_button, "bottom", 5)],
+                        attachControl=[(search_field, "left", 15, search_label),
+                                       (sel_filter_button, "top", 7, search_field)])
 
         return file_layout
 
     def __create_settings_layout(self, main_layout):
         settings_layout = cmds.columnLayout(adj=True, p=main_layout)
-        cmds.frameLayout(l="PROCESSES", w=400)
+        cmds.frameLayout(l="PROCESSES", w=350)
 
         target = cmds.formLayout(h=50)
         target_label = cmds.text(l="Target:", font="boldLabelFont", h=20)
@@ -414,14 +421,49 @@ class BatchProcessor(object):
         return checkbox, frame_layout
 
     def create_pivot_frame(self, frame):
-        pass
+        cmds.text(l="Set the pivot location of the meshes relative to the object's \nbounding box:", align="left",
+                  w=350)
+        cmds.rowLayout(nc=2, adj=2, p=frame)
+        self.create_radio_group("X", frame)
+        self.create_radio_group("Y", frame)
+        self.create_radio_group("Z", frame)
+
+    @staticmethod
+    def create_radio_group(label, layout):
+        button_width = 80
+
+        cmds.rowLayout(nc=4, p=layout)
+        cmds.text(l=label, w=50, h=20)
+
+        radio_collection = cmds.iconTextRadioCollection()
+        left = cmds.iconTextRadioButton(st='textOnly', l='Left', w=button_width, bgc=[0.4, 0.4, 0.4], h=20)
+        middle = cmds.iconTextRadioButton(st='textOnly', l='Middle', w=button_width, bgc=[0.4, 0.4, 0.4], h=20)
+        right = cmds.iconTextRadioButton(st='textOnly', l='Right', w=button_width, bgc=[0.4, 0.4, 0.4], h=20)
+        cmds.iconTextRadioCollection(radio_collection, e=True, select=middle)
 
     def create_scale_frame(self, frame):
-        pass
+        cmds.text(l="Set the grid scale of the meshes. Meshes will be scaled up or \n"
+                    "down towards the nearest grid point:", align="left", w=350)
+        button_width = 80
+
+        checkbox_layout = cmds.formLayout(p=frame)
+        scale_row = cmds.rowLayout(nc=4, p=checkbox_layout)
+        cmds.text(l="Scaling", w=50, h=20)
+        cmds.textField(w=button_width, text="50")
+        cmds.textField(w=button_width, text="50")
+        cmds.textField(w=button_width, text="50")
+
+        self.allow_stretching = cmds.checkBox(v=False, l="Allow for stretching of meshes", p=checkbox_layout)
+        cmds.formLayout(checkbox_layout, e=True, attachForm={(self.allow_stretching, "left", 12),
+                                                             (scale_row, "top", 8), (scale_row, "left", 4),
+                                                             (self.allow_stretching, "right", 20)},
+                        attachControl={(self.allow_stretching, "top", 3, scale_row)})
 
     def create_export_frame(self, frame):
-        export_frame = cmds.columnLayout(p=frame, adj=True)
-        self.fbx_only = cmds.checkBox(v=False, l="Ignore non-fbx files", p=export_frame)
+        export_layout = cmds.formLayout(p=frame)
+        self.fbx_only = cmds.checkBox(v=False, l="Do not copy non-fbx files", p=export_layout)
+        cmds.formLayout(export_layout, e=True, attachForm={(self.fbx_only, "left", 20), (self.fbx_only, "top", 5),
+                                                           (self.fbx_only, "right", 20)})
 
     # ################################################# #
     # ################### PROCESSES ################### #
