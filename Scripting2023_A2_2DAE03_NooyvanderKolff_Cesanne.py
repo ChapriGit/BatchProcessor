@@ -216,12 +216,15 @@ class BatchProcessor(object):
                 self.bolded = False
 
         # TODO Documentation
-        def filter(self, filter_field: str):
+        def filter(self, filter_field: str, error_field: str):
             self.filtered = True
             filter_str = cmds.textField(filter_field, q=True, text=True)
 
+            hidden = False
             for ch in self._children:
-                ch.filter_str(filter_str)
+                hidden = ch.filter_str(filter_str)
+
+            cmds.text(error_field, e=True, visible=hidden)
 
         def filter_str(self, filter_str: str):
             if len(self._children) > 0:
@@ -332,7 +335,7 @@ class BatchProcessor(object):
         # Create the File system lay-out
         file_layout = cmds.columnLayout(adj=True, rs=0, p=main_layout)
 
-        cmds.frameLayout(label=f"FILE SYSTEM", p=file_layout)
+        cmds.frameLayout(label=f"SOURCE FILES", p=file_layout)
 
         target = cmds.formLayout(h=45)
         target_label = cmds.text(l="Source:", font="boldLabelFont", h=20)
@@ -347,6 +350,7 @@ class BatchProcessor(object):
         cmds.separator(p=file_layout, h=15)
 
         cmds.scrollLayout(w=350, h=300, cr=True, vsb=True, p=file_layout)
+        filter_error = cmds.text(l="No files containing the filter string were found.", visible=False)
         self.__files_layout = cmds.formLayout()
         self._update_all_files(self._root)
 
@@ -355,8 +359,10 @@ class BatchProcessor(object):
         search = cmds.formLayout(h=40, p=file_layout)
         search_label = cmds.text(l="Search files:", font="boldLabelFont", h=20)
         search_field = cmds.textField(h=20)
+        # TODO: Optional or maybe a button instead?
+        # self.filter_only = cmds.checkBox(v=False, l="Only use filtered files")
         self.fbx_only = cmds.checkBox(v=False, l="Ignore non-fbx files")
-        cmds.textField(search_field, e=True, cc=lambda _: self._folder_structure.filter(search_field))
+        cmds.textField(search_field, e=True, cc=lambda _: self._folder_structure.filter(search_field, filter_error))
         cmds.formLayout(search, e=True, attachForm=[(search_label, "left", 10), (search_field, "right", 5),
                                                     (search_label, "top", 0), (search_field, "top", 0),
                                                     (self.fbx_only, "left", 10)],
@@ -368,7 +374,41 @@ class BatchProcessor(object):
     def __create_settings_layout(self, main_layout):
         settings_layout = cmds.columnLayout(adj=True, p=main_layout)
         cmds.frameLayout(l="PROCESSES", w=400)
+
+        target = cmds.formLayout(h=50)
+        target_label = cmds.text(l="Target:", font="boldLabelFont", h=20)
+        target_field = cmds.textField(h=20, ed=False, bgc=[0.2, 0.2, 0.2])
+        target_browse = cmds.button(l="Browse", h=20)
+        cmds.formLayout(target, e=True, attachForm=[(target_label, "left", 10), (target_browse, "right", 5),
+                                                    (target_label, "top", 16), (target_field, "top", 16),
+                                                    (target_browse, "top", 15)],
+                        attachControl=[(target_field, "left", 15, target_label),
+                                       (target_field, "right", 8, target_browse)])
+
+        (self.pivot, pivot_frame) = self.create_process_container(settings_layout, "Pivot")
+        self.create_pivot_frame(pivot_frame)
+
+        (self.scale, scale_frame) = self.create_process_container(settings_layout, "Scaling")
+        self.create_scale_frame(scale_frame)
+
         return settings_layout
+
+    @staticmethod
+    def create_process_container(parent, label):
+        form_layout = cmds.formLayout(p=parent)
+        checkbox = cmds.checkBox(v=True, l="", w=30)
+        frame_layout = cmds.frameLayout(l=label, cll=True)
+        cmds.formLayout(form_layout, e=True, attachForm=[(checkbox, "left", 0), (frame_layout, "top", 0),
+                                                         (checkbox, "top", 4), (frame_layout, "right", 0),
+                                                         (frame_layout, "bottom", 8)],
+                        attachControl=[(frame_layout, "left", 5, checkbox)])
+        return checkbox, frame_layout
+
+    def create_pivot_frame(self, frame):
+        pass
+
+    def create_scale_frame(self, frame):
+        pass
 
     # ################################################# #
     # ################### PROCESSES ################### #
