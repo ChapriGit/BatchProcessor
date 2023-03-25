@@ -367,15 +367,11 @@ class BatchProcessor(object):
         search = cmds.formLayout(h=40, p=file_layout)
         search_label = cmds.text(l="Search files:", font="boldLabelFont", h=20)
         search_field = cmds.textField(h=20)
-        # TODO: Optional or maybe a button instead?
-        # self.filter_only = cmds.checkBox(v=False, l="Only use filtered files")
-        self.fbx_only = cmds.checkBox(v=False, l="Ignore non-fbx files")
+        # TODO: Button to add to selection
         cmds.textField(search_field, e=True, cc=lambda _: self._folder_structure.filter(search_field, filter_error))
         cmds.formLayout(search, e=True, attachForm=[(search_label, "left", 10), (search_field, "right", 5),
-                                                    (search_label, "top", 0), (search_field, "top", 0),
-                                                    (self.fbx_only, "left", 10)],
-                        attachControl=[(search_field, "left", 15, search_label),
-                                       (self.fbx_only, "top", 5, search_label)])
+                                                    (search_label, "top", 0), (search_field, "top", 0)],
+                        attachControl=[(search_field, "left", 15, search_label)])
 
         return file_layout
 
@@ -392,6 +388,11 @@ class BatchProcessor(object):
                                                     (target_browse, "top", 15)],
                         attachControl=[(target_field, "left", 15, target_label),
                                        (target_field, "right", 8, target_browse)])
+
+        export_layout = cmds.frameLayout(l="Export Settings", cll=True, p=settings_layout, cl=True)
+        self.create_export_frame(export_layout)
+
+        cmds.separator(p=settings_layout, h=30)
 
         (self.pivot, pivot_frame) = self.create_process_container(settings_layout, "Pivot")
         self.create_pivot_frame(pivot_frame)
@@ -417,6 +418,10 @@ class BatchProcessor(object):
 
     def create_scale_frame(self, frame):
         pass
+
+    def create_export_frame(self, frame):
+        export_frame = cmds.columnLayout(p=frame, adj=True)
+        self.fbx_only = cmds.checkBox(v=False, l="Ignore non-fbx files", p=export_frame)
 
     # ################################################# #
     # ################### PROCESSES ################### #
