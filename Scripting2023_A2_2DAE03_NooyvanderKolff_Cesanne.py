@@ -78,6 +78,7 @@ class BatchProcessor(object):
             self._children = []                     # The children of the FileTree node.
             self.__parent = parent                  # The parent of the FileTree node.
             self.bolded = False
+            self.filtered = False
 
             # If not the root, create the ui for it.
             if depth > 0:
@@ -130,7 +131,8 @@ class BatchProcessor(object):
             """
 
             self.collapsed = hidden
-            cmds.rowLayout(self.ui, e=True, visible=not hidden)
+            status = not hidden and not self.filtered
+            cmds.rowLayout(self.ui, e=True, visible=status)
 
             # Also hide the children.
             for ch in self._children:
@@ -214,6 +216,39 @@ class BatchProcessor(object):
                 cmds.text(self.label, e=True, font="plainLabelFont")
                 self.bolded = False
 
+        def filter(self, filter_field: str):
+            print("Hello")
+            self.filtered = True
+            filter_str = cmds.textField(filter_field, q=True, text=True)
+
+            for ch in self._children:
+                ch.filter_str(filter_str)
+
+        def filter_str(self, filter_str: str):
+            if len(self._children) > 0:
+                hidden = []
+
+                for ch in self._children:
+                    hidden.append(ch.filter_str(filter_str))
+                file_found = False in hidden
+                self.filtered = not file_found
+                print(f"{self.name}, {file_found}, {hidden}")
+                if file_found:
+                    cmds.rowLayout(self.ui, e=True, visible=not self.collapsed)
+                else:
+                    cmds.rowLayout(self.ui, e=True, visible=False)
+                return not file_found
+
+            else:
+                if filter_str not in self.name:
+                    self.filtered = True
+                    cmds.rowLayout(self.ui, e=True, visible=False)
+                    return True
+                else:
+                    self.filtered = False
+                    cmds.rowLayout(self.ui, e=True, visible=not self.collapsed)
+                    return False
+
         def add_child(self, child):
             """
             Adds a child to the FileTree at top-level.
@@ -281,9 +316,9 @@ class BatchProcessor(object):
         settings_layout = self.__create_settings_layout(main_layout)
 
         cmds.formLayout(main_layout, e=True,
-                        attachForm=[(file_layout, "left", 10), (file_layout, "top", 10), (file_layout, "bottom", 10),
+                        attachForm=[(file_layout, "left", 10), (file_layout, "top", 10),
                                     (settings_layout, "right", 10), (settings_layout, "top", 10),
-                                    (settings_layout, "bottom", 10), (separator, "top", 10), (separator, "bottom", 10)],
+                                    (separator, "top", 10), (separator, "bottom", 10)],
                         attachControl=[(file_layout, "right", 15, separator),
                                        (separator, "right", 15, settings_layout)])
 
@@ -302,7 +337,7 @@ class BatchProcessor(object):
         cmds.frameLayout(label=f"FILE SYSTEM", p=file_layout)
 
         target = cmds.formLayout(h=45)
-        target_label = cmds.text(l="Target:", font="boldLabelFont", h=20)
+        target_label = cmds.text(l="Source:", font="boldLabelFont", h=20)
         target_field = cmds.textField(h=20, ed=False, bgc=[0.2, 0.2, 0.2])
         target_browse = cmds.button(l="Browse", h=20)
         cmds.formLayout(target, e=True, attachForm=[(target_label, "left", 10), (target_browse, "right", 5),
@@ -319,12 +354,15 @@ class BatchProcessor(object):
 
         cmds.separator(p=file_layout, h=15)
 
-        search = cmds.formLayout(h=20, p=file_layout)
-        search_label = cmds.text(l="Search:", font="boldLabelFont", h=20)
+        search = cmds.formLayout(h=40, p=file_layout)
+        search_label = cmds.text(l="Search files:", font="boldLabelFont", h=20)
         search_field = cmds.textField(h=20)
+        self.fbx = cmds.checkBox(v=True, l="Also copy non-fbx")
+        cmds.textField(search_field, e=True, cc=lambda _: self._folder_structure.filter(search_field))
         cmds.formLayout(search, e=True, attachForm=[(search_label, "left", 10), (search_field, "right", 5),
-                                                    (search_label, "top", 0), (search_field, "top", 0)],
-                        attachControl=[(search_field, "left", 15, search_label)])
+                                                    (search_label, "top", 0), (search_field, "top", 0),
+                                                    (self.fbx, "left", 10)],
+                        attachControl=[(search_field, "left", 15, search_label), (self.fbx, "top", 5, search_label)])
 
         return file_layout
 
@@ -351,8 +389,7 @@ class BatchProcessor(object):
         Updates all the files in the file system to have the given directory as root.
         :param directory: The new root of the file system.
         """
-        self._folder_structure = self.FileTree(r"C:\Users\cnvdk\DocumentsHowest\Scripting_2\TestProject\src",
-                                               0, self.__files_layout)
+        self._folder_structure = self.FileTree(self._root, 0, self.__files_layout)
 
         parent_folders = [self._folder_structure]
         last_ui = self._folder_structure.ui
@@ -384,9 +421,12 @@ class BatchProcessor(object):
             else:
                 # If the parent folder has no more sub-folders, go one dir up.
                 folder_amount[-1] -= 1
-                if folder_amount[-1] == 0:
+                while folder_amount[-1] == 0:
                     folder_amount.pop()
                     parent_folders.pop()
+                    if len(parent_folders) == 0:
+                        break
+                    folder_amount[-1] -= 1
 
     def set_file_sys_frame(self, tree: FileTree, last_ui: str) -> None:
         """
