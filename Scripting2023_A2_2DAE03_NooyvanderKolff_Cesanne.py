@@ -15,15 +15,23 @@ from maya import cmds
 #     - Make preset file on first open? Then check?
 
 class BatchProcessor(object):
+    __instance = None
+
     def __new__(cls):
         """
         Creates a BatchProcessor object if not yet created. Otherwise, returns the previous instance.
         """
         if not hasattr(cls, 'instance'):
-            cls.instance = object.__new__(cls)
-        return cls.instance
+            cls.__instance = object.__new__(cls)
+            cls.__instance.__initialised = False
+        return cls.__instance
 
     def __init__(self):
+        if self.__initialised:
+            cmds.setFocus(self._window)
+            return
+        self.__initialised = True
+
         # Start in current directory, have a button to change it
         self._root = r"C:\Users\cnvdk\DocumentsHowest\Scripting_2\TestProject\src"
 
