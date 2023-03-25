@@ -1,6 +1,5 @@
 import os
 from maya import cmds
-import maya.OpenMayaUI as omUI
 
 
 # Asset Library Batch Processor
@@ -126,7 +125,7 @@ class BatchProcessor(object):
 
         def hide(self, hidden: bool = False) -> None:
             """
-            Hides or unhides the UI of the FileTree.
+            Hides or shows the UI of the FileTree.
             :param hidden: A boolean representing whether the FileTree should be hidden.
             """
 
@@ -140,7 +139,7 @@ class BatchProcessor(object):
 
         def include(self) -> None:
             """
-            Sets the include value of the entire FileTree to the checkbox value of the root.
+            Sets the included value of the entire FileTree to the checkbox value of the root.
             """
             self.included = cmds.checkBox(self.checkbox, q=True, value=True)
             if not self.included:
@@ -161,7 +160,7 @@ class BatchProcessor(object):
         def __include_children(self, state) -> None:
             """
             Sets the included value of the entire FileTree to the given state.
-            :param state: Boolean to set the include to.
+            :param state: Boolean to set the included to.
             """
             cmds.checkBox(self.checkbox, e=True, value=state)
             self.included = state
@@ -216,8 +215,8 @@ class BatchProcessor(object):
                 cmds.text(self.label, e=True, font="plainLabelFont")
                 self.bolded = False
 
+        # TODO Documentation
         def filter(self, filter_field: str):
-            print("Hello")
             self.filtered = True
             filter_str = cmds.textField(filter_field, q=True, text=True)
 
@@ -232,7 +231,6 @@ class BatchProcessor(object):
                     hidden.append(ch.filter_str(filter_str))
                 file_found = False in hidden
                 self.filtered = not file_found
-                print(f"{self.name}, {file_found}, {hidden}")
                 if file_found:
                     cmds.rowLayout(self.ui, e=True, visible=not self.collapsed)
                 else:
@@ -357,12 +355,13 @@ class BatchProcessor(object):
         search = cmds.formLayout(h=40, p=file_layout)
         search_label = cmds.text(l="Search files:", font="boldLabelFont", h=20)
         search_field = cmds.textField(h=20)
-        self.fbx = cmds.checkBox(v=True, l="Also copy non-fbx")
+        self.fbx_only = cmds.checkBox(v=False, l="Ignore non-fbx files")
         cmds.textField(search_field, e=True, cc=lambda _: self._folder_structure.filter(search_field))
         cmds.formLayout(search, e=True, attachForm=[(search_label, "left", 10), (search_field, "right", 5),
                                                     (search_label, "top", 0), (search_field, "top", 0),
-                                                    (self.fbx, "left", 10)],
-                        attachControl=[(search_field, "left", 15, search_label), (self.fbx, "top", 5, search_label)])
+                                                    (self.fbx_only, "left", 10)],
+                        attachControl=[(search_field, "left", 15, search_label),
+                                       (self.fbx_only, "top", 5, search_label)])
 
         return file_layout
 
