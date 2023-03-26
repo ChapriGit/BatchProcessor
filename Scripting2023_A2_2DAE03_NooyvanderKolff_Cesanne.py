@@ -109,7 +109,7 @@ class BatchProcessor(object):
             if folder:
                 self.icon = cmds.iconTextButton(style='iconOnly', image1='arrowDown.png', align='center', w=20)
                 cmds.iconTextButton(self.icon, e=True, command=self._collapse)
-                cmds.rowLayout(layout, e=True, h=20, bgc=[0.15, 0.15, 0.16])
+                cmds.rowLayout(layout, e=True, h=20, bgc=[0.1, 0.1, 0.13])
 
             # Create a checkbox for the lay-out.
             self.checkbox = cmds.checkBox(v=True, l="", height=15)
@@ -362,7 +362,7 @@ class BatchProcessor(object):
 
         cmds.separator(p=file_layout, h=15)
 
-        cmds.scrollLayout(w=350, h=300, cr=True, vsb=True, p=file_layout)
+        cmds.scrollLayout(w=350, h=300, cr=True, vsb=True, p=file_layout, bgc=[0.2, 0.2, 0.2])
         filter_error = cmds.text(l="No files containing the filter string were found.", visible=False)
         self.__files_layout = cmds.formLayout()
         self._update_all_files(self._root)
@@ -404,6 +404,7 @@ class BatchProcessor(object):
         (self.pivot, pivot_frame) = self.create_process_container(settings_layout, "Pivot")
         self.create_pivot_frame(pivot_frame)
 
+        cmds.setParent(settings_layout)
         (self.scale, scale_frame) = self.create_process_container(settings_layout, "Scaling")
         self.create_scale_frame(scale_frame)
 
@@ -423,10 +424,10 @@ class BatchProcessor(object):
     def create_pivot_frame(self, frame):
         cmds.text(l="Set the pivot location of the meshes relative to the object's \nbounding box:", align="left",
                   w=350)
-        cmds.rowLayout(nc=2, adj=2, p=frame)
         self.create_radio_group("X", frame)
         self.create_radio_group("Y", frame)
         self.create_radio_group("Z", frame)
+        cmds.rowLayout(h=5, p=frame)
 
     @staticmethod
     def create_radio_group(label, layout):
