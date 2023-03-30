@@ -1,4 +1,5 @@
 import os
+
 from maya import cmds
 
 
@@ -15,25 +16,13 @@ from maya import cmds
 #     - Make preset file on first open? Then check?
 
 class BatchProcessor(object):
-    __instance = None
-
-    def __new__(cls):
-        """
-        Creates a BatchProcessor object if not yet created. Otherwise, returns the previous instance.
-        """
-        if not hasattr(cls, 'instance'):
-            cls.__instance = object.__new__(cls)
-            cls.__instance.__initialised = False
-        return cls.__instance
-
     def __init__(self):
-        if self.__initialised:
-            cmds.setFocus(self._window)
-            return
-        self.__initialised = True
-
+        """
+        Initialises a BatchProcessor object and runs the script.
+        """
         # Start in current directory, have a button to change it
         self._root = r"C:\Users\cnvdk\DocumentsHowest\Scripting_2\TestProject\src"
+        self._dest = ""
 
         # TODO: FBX checkbox
         self.fbx_only = False
@@ -43,24 +32,34 @@ class BatchProcessor(object):
         self.log_file = ""
         self.__create_window()
 
+        self.run()
+
     # ################################################################### #
     # ################## Helper Functions and Classes ################### #
 
     def __write_to_log(self, line: str):
+        """
+        Writes the line to the log of the BatchProcessor on a new line.
+        :param line: The line to be written to the log
+        """
         with open(self.log_file, "a") as f:
             f.write(line + "\n")
 
-    # TODO: Lambdas
     @staticmethod
-    def wrapper_function(fn, *args, **kwargs):
+    def error_message(fn, text: str, icn: str = "critical", title: str = "ERROR", *args, **kwargs):
         """
-        A function to wrap a function, discarding the first input. Parameters can be given along as well.
-        :param fn: The function to be wrapped.
-        :return: A wrapped function with the specified parameters.
+        Creates an error prompt and reruns the given function with arguments.
+
+        :param fn: The function to run after the error message has been closed.
+        :param text: The message to be shown in the error prompt.
+        :param icn: The icon to be shown in the prompt. Default value is "critical", other options are "warning",
+        "information" and "question"
+        :param title: The title of the error prompt.
+        :param args: Extra args given to the function.
+        :param kwargs: Extra kwargs given to the function.
         """
-        def wrapped(_):
-            fn(*args, **kwargs)
-        return wrapped
+        cmds.confirmDialog(icn=icn, message=text, b="Close", title=title)
+        fn(*args, **kwargs)
 
     # Helper inner class for file structure.
     class FileTree(object):
@@ -88,13 +87,14 @@ class BatchProcessor(object):
             self.bolded = False
             self.filtered = False
 
-            # If not the root, create the ui for it.
+            # If not the root, create the ui for it. Else create a row layout, also creating some space at the top.
             if depth > 0:
                 self.ui = self.__create_ui(folder, layout)
             else:
-                self.ui = cmds.rowLayout()
+                self.ui = cmds.rowLayout(h=5)
+                cmds.setParent("..")
 
-        def __create_ui(self, folder: bool, parent) -> str:
+        def __create_ui(self, folder: bool, parent: str) -> str:
             """
             Creates a row layout UI of the FileTree.
             :param folder: True if the structure is a folder, false if it represents a file.
@@ -146,6 +146,21 @@ class BatchProcessor(object):
             for ch in self._children:
                 ch.hide(hidden)
 
+        def set_included(self, state: bool):
+            """
+            Sets the included state to the given. Will turn the label bold if turned off, otherwise makes it plain.
+            :param state: Whether the root should be enabled or not.
+            """
+            cmds.checkBox(self.checkbox, e=True, value=state)
+            self.included = state
+
+            if not state:
+                cmds.text(self.label, e=True, font="boldLabelFont")
+                self.bolded = True
+            else:
+                cmds.text(self.label, e=True, font="plainLabelFont")
+                self.bolded = False
+
         def include(self) -> None:
             """
             Sets the included value of the entire FileTree to the checkbox value of the root.
@@ -160,30 +175,22 @@ class BatchProcessor(object):
 
             # Also include its children.
             for ch in self._children:
-                ch.__include_children(self.included)
+                ch.include_children(self.included)
 
             # Re-enable the parent if excluded.
             if self.depth > 1:
                 self.__parent.child_include(self.included)
 
-        def __include_children(self, state) -> None:
+        def include_children(self, state: bool) -> None:
             """
             Sets the included value of the entire FileTree to the given state.
             :param state: Boolean to set the included to.
             """
-            cmds.checkBox(self.checkbox, e=True, value=state)
-            self.included = state
-
-            if not self.included:
-                cmds.text(self.label, e=True, font="boldLabelFont")
-                self.bolded = True
-            else:
-                cmds.text(self.label, e=True, font="plainLabelFont")
-                self.bolded = False
+            self.set_included(state)
 
             # Also set the children
             for ch in self._children:
-                ch.__include_children(self.included)
+                ch.include_children(self.included)
 
         def child_include(self, state: bool = True) -> None:
             """
@@ -208,39 +215,55 @@ class BatchProcessor(object):
 
             # Change the state if necessary
             if change_state:
-                self.included = state
-                cmds.checkBox(self.checkbox, e=True, value=state)
+                self.set_included(state)
+
+                if not plain_font and state:
+                    cmds.text(self.label, e=True, font="obliqueLabelFont")
+                    self.bolded = True
 
                 if self.depth > 1:
                     self.__parent.child_include(state)
 
-            if not plain_font and self.depth > 1:
-                if change_state and not state:
-                    cmds.text(self.label, e=True, font="boldLabelFont")
-                else:
-                    cmds.text(self.label, e=True, font="obliqueLabelFont")
-                self.bolded = True
             else:
-                cmds.text(self.label, e=True, font="plainLabelFont")
-                self.bolded = False
+                if not plain_font:
+                    cmds.text(self.label, e=True, font="obliqueLabelFont")
+                    self.bolded = True
+                else:
+                    cmds.text(self.label, e=True, font="plainLabelFont")
+                    self.bolded = False
 
-        # TODO Documentation
         def filter(self, filter_field: str, error_field: str):
+            """
+            Filters the file tree on the string in the given filter field.
+            :param filter_field: The field to check the string from.
+            :param error_field: The error field to be shown if no files match the filter.
+            """
+            # Get the filter string out and set the filtered.
             self.filtered = True
             filter_str = cmds.textField(filter_field, q=True, text=True)
 
+            # Filters the children
             hidden = False
             for ch in self._children:
                 hidden = ch.filter_str(filter_str)
 
+            # Setting the error field in case all are hidden.
             cmds.text(error_field, e=True, visible=hidden)
 
         def filter_str(self, filter_str: str):
+            """
+            Filters the children with the given string
+            :param filter_str: The string to filter on
+            :return True if the FileTree did not get filtered out and a file was found.
+            """
+            # Directories
             if len(self._children) > 0:
+                # Check all children
                 hidden = []
-
                 for ch in self._children:
                     hidden.append(ch.filter_str(filter_str))
+
+                # Hide or unhide the folder depending on whether anything was found in its children.
                 file_found = False in hidden
                 self.filtered = not file_found
                 if file_found:
@@ -253,7 +276,10 @@ class BatchProcessor(object):
                     cmds.rowLayout(self.ui, e=True, visible=False)
                 return not file_found
 
+            # Files
             else:
+                # TODO: Asterisk support
+                # Check whether the files contain the filter string and (un)hide the UI accordingly.
                 if filter_str.casefold() not in self.name.casefold():
                     self.filtered = True
                     cmds.rowLayout(self.ui, e=True, visible=False)
@@ -263,7 +289,40 @@ class BatchProcessor(object):
                     cmds.rowLayout(self.ui, e=True, visible=not self.collapsed)
                     return False
 
-        def add_child(self, child):
+        def add_filter_children(self):
+            """
+            Add the filtered files to the selection.
+            """
+            # Directories
+            if len(self._children) > 0:
+                for ch in self._children:
+                    ch.add_filter_children()
+            # Files
+            else:
+                if not self.filtered:
+                    self.set_included(True)
+                    self.__parent.child_include(True)
+
+        def add_filter(self, filter_field: str, error_field: str):
+            """
+            Sets the filter and immediately adds the children to the field.
+
+            :param filter_field: The field in which the user can enter their filter string.
+            :param error_field: The error field to be shown if no files were found.
+            """
+            self.filter(filter_field, error_field)
+            self.add_filter_children()
+
+        def set_to_filter(self, filter_field: str, error_field: str):
+            """
+            Sets the selection equal to the filter.
+            :param filter_field: The field in which the user can enter their filter string.
+            :param error_field: The error field to be shown if no files were found.
+            """
+            self._children[0].include_children(False)
+            self.add_filter(filter_field, error_field)
+
+        def add_child(self, child: str):
             """
             Adds a child to the FileTree at top-level.
             :param child: The FileTree child to be added.
@@ -321,9 +380,10 @@ class BatchProcessor(object):
         Creates the BatchProcessor window.
         """
         # Create the window and set up the master layout.
-        self._window = cmds.window("Asset Library Batch Processor", widthHeight=(800, 500))
+        self._window = cmds.window(t="Asset Library Batch Processor", widthHeight=(900, 535))
         self.__master_layout = cmds.columnLayout(adj=True, rs=15)
 
+        # Setup of the two sides of the main layout. Left for the files and Right for the options
         main_layout = cmds.formLayout()
         file_layout = self.__create_file_layout(main_layout)
         separator = cmds.separator(hr=False, style="out", p=main_layout)
@@ -336,20 +396,25 @@ class BatchProcessor(object):
                         attachControl=[(file_layout, "right", 15, separator),
                                        (separator, "right", 15, settings_layout)])
 
+        # Set up the bottom buttons: Run and Cancel
         cmds.setParent(self.__master_layout)
         cmds.separator(style="out")
         button_layout = cmds.formLayout()
         run_button = cmds.button(l="Run")
-        cancel_button = cmds.button(l="Cancel")
+        cancel_button = cmds.button(l="Cancel", c=lambda _: self.cancel())
         cmds.formLayout(button_layout, e=True, attachForm=[(cancel_button, "right", 10)],
                         attachControl=[(run_button, "right", 10, cancel_button)])
 
-    def __create_file_layout(self, main_layout):
+    def __create_file_layout(self, main_layout: str):
+        """
+        Creates the File layout. This contains the source file system as well as the search.
+        :param main_layout: The parent layout to which this layout should be parented.
+        """
         # Create the File system lay-out
         file_layout = cmds.columnLayout(adj=True, rs=0, p=main_layout)
-
         cmds.frameLayout(label=f"SOURCE FILES", p=file_layout)
 
+        # Setup of the Source selection
         target = cmds.formLayout(h=45)
         target_label = cmds.text(l="Source:", font="boldLabelFont", h=20)
         target_field = cmds.textField(h=20, ed=False, bgc=[0.2, 0.2, 0.2])
@@ -360,32 +425,50 @@ class BatchProcessor(object):
                         attachControl=[(target_field, "left", 15, target_label),
                                        (target_field, "right", 8, target_browse)])
 
+        cmds.button(target_browse, e=True, c=lambda _: self.source_browse(target_field))
+
         cmds.separator(p=file_layout, h=15)
 
-        cmds.scrollLayout(w=350, h=300, cr=True, vsb=True, p=file_layout, bgc=[0.2, 0.2, 0.2])
+        # Setup of the File System Layout
+        self.files_scroll = cmds.scrollLayout(w=350, h=300, cr=True, vsb=True, p=file_layout, bgc=[0.2, 0.2, 0.2])
         filter_error = cmds.text(l="No files containing the filter string were found.", visible=False)
         self.__files_layout = cmds.formLayout()
-        self._update_all_files(self._root)
+        self._update_all_files(self._root, target_field)
 
         cmds.separator(p=file_layout, h=15)
 
+        # Setup of the Search bar
         search = cmds.formLayout(p=file_layout)
         search_label = cmds.text(l="Search files:", font="boldLabelFont", h=20)
         search_field = cmds.textField(h=20)
         cmds.textField(search_field, e=True, cc=lambda _: self._folder_structure.filter(search_field, filter_error))
-        sel_filter_button = cmds.button(l="Add filtered to selection")
+        add_sel_filter_button = cmds.button(l="Add search to selection",
+                                            c=lambda _: self._folder_structure.add_filter(search_field, filter_error))
+        sel_filter_button = cmds.button(l="Set selection to search",
+                                        c=lambda _: self._folder_structure.set_to_filter(search_field, filter_error))
         cmds.formLayout(search, e=True, attachForm=[(search_label, "left", 10), (search_field, "right", 5),
                                                     (search_label, "top", 0), (search_field, "top", 0),
-                                                    (sel_filter_button, "right", 5), (sel_filter_button, "bottom", 5)],
+                                                    (sel_filter_button, "right", 5),
+                                                    (add_sel_filter_button, "bottom", 5),
+                                                    (sel_filter_button, "bottom", 5)],
                         attachControl=[(search_field, "left", 15, search_label),
-                                       (sel_filter_button, "top", 7, search_field)])
+                                       (sel_filter_button, "top", 7, search_field),
+                                       (add_sel_filter_button, "right", 5, sel_filter_button),
+                                       (add_sel_filter_button, "top", 7, search_field)])
 
         return file_layout
 
-    def __create_settings_layout(self, main_layout):
+    def __create_settings_layout(self, main_layout: str):
+        """
+        Creates the settings layout. Contains all settings pertaining to
+        the actual processes when running over the batch.
+        :param main_layout: The layout to which the settings layout should be parented.
+        """
+        # Main layout of the settings
         settings_layout = cmds.columnLayout(adj=True, p=main_layout)
         cmds.frameLayout(l="PROCESSES", w=350)
 
+        # Setup of the picking of a Target directory.
         target = cmds.formLayout(h=50)
         target_label = cmds.text(l="Target:", font="boldLabelFont", h=20)
         target_field = cmds.textField(h=20, ed=False, bgc=[0.2, 0.2, 0.2])
@@ -396,11 +479,15 @@ class BatchProcessor(object):
                         attachControl=[(target_field, "left", 15, target_label),
                                        (target_field, "right", 8, target_browse)])
 
+        # Setup of the export settings layout
         export_layout = cmds.frameLayout(l="Export Settings", cll=True, p=settings_layout, cl=True)
         self.create_export_frame(export_layout)
 
+        cmds.button(target_browse, e=True, c=lambda _: self.target_browse(target_field))
+
         cmds.separator(p=settings_layout, h=30)
 
+        # Setup of the process setting layouts.
         (self.pivot, pivot_frame) = self.create_process_container(settings_layout, "Pivot")
         self.create_pivot_frame(pivot_frame)
 
@@ -411,7 +498,12 @@ class BatchProcessor(object):
         return settings_layout
 
     @staticmethod
-    def create_process_container(parent, label):
+    def create_process_container(parent: str, label: str):
+        """
+        Creates a frame layout with a checkbox for process settings.
+        :param parent: The parent of the new layout.
+        :param label: The label displayed in the new frame layout.
+        """
         form_layout = cmds.formLayout(p=parent)
         checkbox = cmds.checkBox(v=True, l="", w=30)
         frame_layout = cmds.frameLayout(l=label, cll=True)
@@ -421,28 +513,45 @@ class BatchProcessor(object):
                         attachControl=[(frame_layout, "left", 5, checkbox)])
         return checkbox, frame_layout
 
-    def create_pivot_frame(self, frame):
+    def create_pivot_frame(self, frame: str):
+        """
+        Creates the layout for the pivot settings.
+        :param frame: The parent frame layout.
+        """
         cmds.text(l="Set the pivot location of the meshes relative to the object's \nbounding box:", align="left",
                   w=350)
-        self.create_radio_group("X", frame)
-        self.create_radio_group("Y", frame)
-        self.create_radio_group("Z", frame)
+
+        options = ["Min", "Middle", "Max"]
+        self.create_radio_group("X", frame, options)
+        self.create_radio_group("Y", frame, options)
+        self.create_radio_group("Z", frame, options)
         cmds.rowLayout(h=5, p=frame)
 
     @staticmethod
-    def create_radio_group(label, layout):
-        button_width = 80
-
+    def create_radio_group(label: str, layout: str, options: [str], default_opt: int = 1, width: int = 80):
+        """
+        Creates a group of radio-like buttons with the given options.
+        :param label: The label in front of the radio buttons.
+        :param layout: The parent layout.
+        :param options: The labels for the possible buttons.
+        :param default_opt: The default selected index from 0 to len - 1
+        :param width: The buttons width
+        """
         cmds.rowLayout(nc=4, p=layout)
         cmds.text(l=label, w=50, h=20)
 
         radio_collection = cmds.iconTextRadioCollection()
-        left = cmds.iconTextRadioButton(st='textOnly', l='Left', w=button_width, bgc=[0.4, 0.4, 0.4], h=20)
-        middle = cmds.iconTextRadioButton(st='textOnly', l='Middle', w=button_width, bgc=[0.4, 0.4, 0.4], h=20)
-        right = cmds.iconTextRadioButton(st='textOnly', l='Right', w=button_width, bgc=[0.4, 0.4, 0.4], h=20)
-        cmds.iconTextRadioCollection(radio_collection, e=True, select=middle)
+        buttons = []
+        for opt in options:
+            button = cmds.iconTextRadioButton(st='textOnly', l=opt, w=width, bgc=[0.4, 0.4, 0.4], h=20)
+            buttons.append(button)
+        cmds.iconTextRadioCollection(radio_collection, e=True, select=buttons[default_opt])
 
-    def create_scale_frame(self, frame):
+    def create_scale_frame(self, frame: str):
+        """
+        Creates the layout for the scale settings.
+        :param frame: The layout to parent the new layout to.
+        """
         cmds.text(l="Set the grid scale of the meshes. Meshes will be scaled up or \n"
                     "down towards the nearest grid point:", align="left", w=350)
         button_width = 80
@@ -454,17 +563,102 @@ class BatchProcessor(object):
         cmds.textField(w=button_width, text="50")
         cmds.textField(w=button_width, text="50")
 
+        # TODO: Set main axis or logging note
         self.allow_stretching = cmds.checkBox(v=False, l="Allow for stretching of meshes", p=checkbox_layout)
         cmds.formLayout(checkbox_layout, e=True, attachForm={(self.allow_stretching, "left", 12),
                                                              (scale_row, "top", 8), (scale_row, "left", 4),
                                                              (self.allow_stretching, "right", 20)},
                         attachControl={(self.allow_stretching, "top", 3, scale_row)})
 
-    def create_export_frame(self, frame):
+    def create_export_frame(self, frame: str):
+        """
+        Creates the layout for the export settings.
+        :param frame: The parent of the layout.
+        """
         export_layout = cmds.formLayout(p=frame)
         self.fbx_only = cmds.checkBox(v=False, l="Do not copy non-fbx files", p=export_layout)
         cmds.formLayout(export_layout, e=True, attachForm={(self.fbx_only, "left", 20), (self.fbx_only, "top", 5),
                                                            (self.fbx_only, "right", 20)})
+
+    # ################################################# #
+    # ################ BUTTON COMMANDS ################ #
+
+    def source_browse(self, field: str):
+        """
+        Browse for a new source location.
+        :param field: The text field in which the source path should be displayed.
+        """
+        new_source_lst = cmds.fileDialog2(ds=1, fm=3, dir=self._root)
+        if new_source_lst is not None:
+            new_source = new_source_lst[0]
+            no_error = self.check_source(new_source, lambda: self.source_browse(field))
+
+            if no_error:
+                self._update_all_files(new_source, field)
+
+    def target_browse(self, field: str):
+        """
+        Browse for a new target location.
+        :param field: The text field in which the target path should be displayed.
+        """
+        new_dest_lst = cmds.fileDialog2(ds=1, fm=3, dir=self._dest)
+        if new_dest_lst is not None:
+            new_dest = new_dest_lst[0]
+            no_error = self.check_dest(new_dest, lambda: self.target_browse(field))
+
+            if no_error:
+                self._dest = new_dest
+                cmds.textField(field, e=True, text=new_dest)
+
+    # ################################################# #
+    # ################## USER CHECKS ################## #
+
+    def check_source(self, root: str, fn, *args, **kwargs):
+        """
+        Checks the source location. For the source location to be correct, it needs to contain at least one fbx file. If
+        the source location is not valid, it will call the function given.
+        :param root: The root path of the source folder structure.
+        :param fn: The function to be called in case the source is not correct.
+        :param args: Extra args to be given to the function.
+        :param kwargs: Extra kwargs to be given to the function.
+        :return: True if the source location is good for use.
+        """
+        sub_folder_walk = os.walk(root)
+        for root, dirs, files in sub_folder_walk:
+            for f in files:
+                if f.endswith(".fbx"):
+                    return True
+        else:
+            self.error_message(fn, "Please choose a folder structure containing at least one fbx file", *args, **kwargs)
+            return False
+
+    def check_dest(self, root, fn, *args, **kwargs):
+        """
+        Checks the destination location. A destination location is correct if it is not empty and the user has write
+        access. Will give a warning if the destination already contains an output folder.
+        :param root: The path of the destination folder.
+        :param fn: The function to be called if the destination is not good for use.
+        :param args: Extra args to be given to the function above.
+        :param kwargs: Extra kwargs to be given to the function above.
+        :return: True if the destination location can be used, otherwise False.
+        """
+        if root is "":
+            self.error_message(fn, "No target folder was set. Please select one.",
+                               *args, **kwargs)
+            return False
+        path = os.path.join(root, "_output")
+        if not os.access(root, os.W_OK):
+            self.error_message(fn, "No permission to write in this folder. Please choose a different destination.",
+                               *args, **kwargs)
+            return False
+
+        # TODO: Give it a retry
+        if os.path.exists(path):
+            cmds.confirmDialog(message="There is already an output folder (/_output)at this destination. \n"
+                                       "\nThis tool will overwrite any duplicate files. If this is not wanted, \n"
+                                       "please choose a different directory.", button="Close", title="WARNING",
+                               ma="left", icn="warning")
+        return True
 
     # ################################################# #
     # ################### PROCESSES ################### #
@@ -476,21 +670,23 @@ class BatchProcessor(object):
         cmds.showWindow(self._window)
 
     def cancel(self) -> None:
-        # TODO: Canceling
-        pass
+        cmds.deleteUI(self._window)
 
-    def _update_all_files(self, directory: str) -> None:
+    def _update_all_files(self, directory: str, source_field: str) -> None:
         """
         Updates all the files in the file system to have the given directory as root.
         :param directory: The new root of the file system.
         """
+        self._root = directory
+        cmds.deleteUI(self.__files_layout)
+        self.__files_layout = cmds.formLayout(p=self.files_scroll)
         self._folder_structure = self.FileTree(self._root, 0, self.__files_layout)
 
         parent_folders = [self._folder_structure]
         last_ui = self._folder_structure.ui
         folder_amount = [1]
 
-        file_iterator = os.walk(directory)
+        file_iterator = os.walk(self._root)
         for root, dirs, files in file_iterator:
             # Get the parent and depth right
             last_folder = parent_folders[-1]
@@ -522,6 +718,8 @@ class BatchProcessor(object):
                     if len(parent_folders) == 0:
                         break
                     folder_amount[-1] -= 1
+
+        cmds.textField(source_field, e=True, text=self._root)
 
     def set_file_sys_frame(self, tree: FileTree, last_ui: str) -> None:
         """
@@ -567,4 +765,6 @@ class BatchProcessor(object):
 # ################### MAIN ################### #
 
 processor = BatchProcessor()
-processor.run()
+
+# TODO: Preference file + only one window open at a time? -> Set close command window!
+# cmds.optionVar(ex=self.OPTION_VAR_NAME):
