@@ -1,5 +1,4 @@
 import os
-
 from maya import cmds
 
 
@@ -14,6 +13,16 @@ from maya import cmds
 #     - Script has thought-out visuals during the process
 #     - Additional features
 #     - Make preset file on first open? Then check?
+
+# TODO:
+# - Pivot
+# - Scaling:
+#       - Add extra button-y things
+#       - Functionality
+# - Filter non-fbx
+# - Combine meshes or not
+# - Run & User Checks!
+# - Log file
 
 class BatchProcessor(object):
     def __init__(self):
@@ -263,7 +272,7 @@ class BatchProcessor(object):
                 for ch in self._children:
                     hidden.append(ch.filter_str(filter_str))
 
-                # Hide or unhide the folder depending on whether anything was found in its children.
+                # Hide or show the folder depending on whether anything was found in its children.
                 file_found = False in hidden
                 self.filtered = not file_found
                 if file_found:
@@ -278,16 +287,16 @@ class BatchProcessor(object):
 
             # Files
             else:
-                # TODO: Asterisk support
                 # Check whether the files contain the filter string and (un)hide the UI accordingly.
-                if filter_str.casefold() not in self.name.casefold():
-                    self.filtered = True
-                    cmds.rowLayout(self.ui, e=True, visible=False)
-                    return True
-                else:
-                    self.filtered = False
-                    cmds.rowLayout(self.ui, e=True, visible=not self.collapsed)
-                    return False
+                if filter_str.startswith("*"):
+                    if filter_str.casefold() not in self.name.casefold():
+                        self.filtered = True
+                        cmds.rowLayout(self.ui, e=True, visible=False)
+                        return True
+                    else:
+                        self.filtered = False
+                        cmds.rowLayout(self.ui, e=True, visible=not self.collapsed)
+                        return False
 
         def add_filter_children(self):
             """
@@ -322,7 +331,7 @@ class BatchProcessor(object):
             self._children[0].include_children(False)
             self.add_filter(filter_field, error_field)
 
-        def add_child(self, child: str):
+        def add_child(self, child):
             """
             Adds a child to the FileTree at top-level.
             :param child: The FileTree child to be added.
@@ -377,10 +386,15 @@ class BatchProcessor(object):
 
     def __create_window(self) -> None:
         """
-        Creates the BatchProcessor window.
+        Creates the BatchProcessor window if none yet exist. Otherwise, will set the focus on the already existing
+        window.
         """
+        self._window = "AssetLibraryBatchProcessor"
+        if cmds.window("AssetLibraryBatchProcessor", ex=True):
+            cmds.setFocus(self._window)
+            return
         # Create the window and set up the master layout.
-        self._window = cmds.window(t="Asset Library Batch Processor", widthHeight=(900, 535))
+        cmds.window("AssetLibraryBatchProcessor", t="Asset Library Batch Processor", widthHeight=(900, 535))
         self.__master_layout = cmds.columnLayout(adj=True, rs=15)
 
         # Setup of the two sides of the main layout. Left for the files and Right for the options
@@ -652,12 +666,14 @@ class BatchProcessor(object):
                                *args, **kwargs)
             return False
 
-        # TODO: Give it a retry
         if os.path.exists(path):
-            cmds.confirmDialog(message="There is already an output folder (/_output)at this destination. \n"
-                                       "\nThis tool will overwrite any duplicate files. If this is not wanted, \n"
-                                       "please choose a different directory.", button="Close", title="WARNING",
-                               ma="left", icn="warning")
+            dialog = cmds.confirmDialog(message="There is already an output folder (/_output) at this destination. \n"
+                                                "\nThis tool will overwrite any duplicate files. If this is not wanted,"
+                                                "\n please choose a different directory.", button=["Retry", "Close"],
+                                        title="WARNING", ma="left", icn="warning")
+            if dialog == "Retry":
+                fn(*args, **kwargs)
+                return False
         return True
 
     # ################################################# #
