@@ -288,15 +288,14 @@ class BatchProcessor(object):
             # Files
             else:
                 # Check whether the files contain the filter string and (un)hide the UI accordingly.
-                if filter_str.startswith("*"):
-                    if filter_str.casefold() not in self.name.casefold():
-                        self.filtered = True
-                        cmds.rowLayout(self.ui, e=True, visible=False)
-                        return True
-                    else:
-                        self.filtered = False
-                        cmds.rowLayout(self.ui, e=True, visible=not self.collapsed)
-                        return False
+                if filter_str.casefold() not in self.name.casefold():
+                    self.filtered = True
+                    cmds.rowLayout(self.ui, e=True, visible=False)
+                    return True
+                else:
+                    self.filtered = False
+                    cmds.rowLayout(self.ui, e=True, visible=not self.collapsed)
+                    return False
 
         def add_filter_children(self):
             """
