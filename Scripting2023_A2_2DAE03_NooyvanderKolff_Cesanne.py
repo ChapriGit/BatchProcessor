@@ -17,13 +17,12 @@ from maya import cmds
 # TODO:
 # - Pivot
 # - Scaling
-# - Run & User Checks especially on the text fields!
+# - Run
 # - Log file
 # - Set root folder
 # - Preference File
 
-# BUGS:
-# - Set selection to search without search italic
+# Check all the docs and comments
 
 class BatchProcessor(object):
     def __init__(self):
@@ -42,10 +41,9 @@ class BatchProcessor(object):
         self.pivot = True                               # True if pivot has to be changed.
         self.pivot_placement = [1, 1, 1]                # Pivot placement per axis: 0 = min, 1 = middle, 2 = max.
         self.scaling = True                             # True if scaling is wanted for the objects.
-        self.scale_all = ["", "", ""]                   # The text fields containing the scaling to snap objects to.
+        self.scale = [50.0, 50.0, 50.0, 50.0]           # The text fields containing the scaling to snap objects to.
         self.allow_stretching = True                    # True if models are allowed to be stretched.
         self.main_axis = 0                              # The main axis in case stretching is not allowed.
-        self.scale = ""                                 # The text field containing the uniform scale.
 
         # TODO: Log file
         # The log file.
@@ -382,7 +380,7 @@ class BatchProcessor(object):
             tree = []
             if len(self._children) > 0:
                 for ch in self._children:
-                    tree += ch.print_children()
+                    tree += ch.get_all_included_files()
             else:
                 tree.append(self.root)
 
@@ -447,6 +445,7 @@ class BatchProcessor(object):
         cmds.separator(style="out")
         button_layout = cmds.formLayout()
         run_button = cmds.button(l="Run")
+        cmds.button(run_button, e=True, c=lambda _: self.__run_processor(run_button))
         cancel_button = cmds.button(l="Cancel", c=lambda _: self.cancel())
         cmds.formLayout(button_layout, e=True, attachForm=[(cancel_button, "right", 10)],
                         attachControl=[(run_button, "right", 10, cancel_button)])
@@ -625,9 +624,11 @@ class BatchProcessor(object):
         cmds.rowLayout(nc=4)
         cmds.text(l="Scaling", w=50, h=20)
         scale_x = cmds.textField(w=button_width, text="50")
+        cmds.textField(scale_x, e=True, cc=lambda u_input: self.check_text_fields(scale_x, u_input, 0))
         scale_y = cmds.textField(w=button_width, text="50")
+        cmds.textField(scale_y, e=True, cc=lambda u_input: self.check_text_fields(scale_x, u_input, 1))
         scale_z = cmds.textField(w=button_width, text="50")
-        self.scale_all = [scale_x, scale_y, scale_z]
+        cmds.textField(scale_z, e=True, cc=lambda u_input: self.check_text_fields(scale_x, u_input, 2))
 
         non_stretch = cmds.columnLayout(p=checkbox_layout, visible=not self.allow_stretching)
         scale_axis = self.create_radio_group("Main Axis", non_stretch, ["X", "Y", "Z"], 0, 60, "left", 70)
@@ -636,7 +637,8 @@ class BatchProcessor(object):
 
         cmds.rowLayout(nc=2, p=non_stretch)
         cmds.text(l="Scaling", w=58, h=22, align="left")
-        self.scale = cmds.textField(w=75, text="50")
+        scale_txt = cmds.textField(w=75, text="50")
+        cmds.textField(scale_txt, e=True, cc=lambda u_input: self.check_text_fields(scale_txt, u_input, 3))
 
         allow_stretching = cmds.checkBox(v=self.allow_stretching, l="Allow stretching of meshes", p=checkbox_layout)
         cmds.checkBox(allow_stretching, e=True, cc=lambda state: self.set_stretching(state, scale_row, non_stretch))
@@ -773,12 +775,24 @@ class BatchProcessor(object):
         if os.path.exists(path):
             dialog = cmds.confirmDialog(message="There is already an output folder (/_output) at this destination. \n"
                                                 "\nThis tool will overwrite any duplicate files. If this is not wanted,"
-                                                "\n please choose a different directory.", button=["Retry", "Close"],
+                                                "\n please choose a different directory.",
+                                        button=["Choose new directory", "Continue"],
                                         title="WARNING", ma="left", icn="warning")
-            if dialog == "Retry":
+            if dialog == "Choose new directory":
                 fn(*args, **kwargs)
                 return False
         return True
+
+    def check_text_fields(self, text_field, u_input, index: int):
+        try:
+            scale = float(u_input)
+            if scale > 0.01:
+                self.scale[index] = scale
+            else:
+                self.scale[index] = 0.01
+                cmds.textField(text_field, e=True, text="0.01")
+        except ValueError:
+            cmds.textField(text_field, e=True, text=str(self.scale[index]))
 
     # ################################################# #
     # ################### PROCESSES ################### #
@@ -820,7 +834,8 @@ class BatchProcessor(object):
 
             # Add all the files in this folder to this folder
             for f in files:
-                child_tree = self.FileTree(f, depth + 1, self.__files_layout, False, new_folder)
+                path = os.path.join(root, f)
+                child_tree = self.FileTree(path, depth + 1, self.__files_layout, False, new_folder)
                 new_folder.add_child(child_tree)
                 self.set_file_sys_frame(child_tree, last_ui)
                 last_ui = child_tree.ui
@@ -851,12 +866,20 @@ class BatchProcessor(object):
                         attachForm=[(tree.ui, 'left', tree.depth*20-15), (tree.ui, 'right', 10)],
                         attachControl=[(tree.ui, 'top', 0, last_ui)])
 
-    def _run_processor(self) -> None:
+    def __run_processor(self, button) -> None:
         """
         Running the actual processing of the BatchProcessor.
         """
+        # Make sure all user input went through and got checked.
+        cmds.setFocus(button)
+        if not self.check_dest(self._dest, lambda *args: None):
+            return
+        if not self.check_source(self._root, lambda *args: None):
+            return
+
         # Only on selected files.
         files = self._folder_structure.get_all_included_files()
+        print(files)
 
         # Do the processing thingies for every file.
         for f in files:
