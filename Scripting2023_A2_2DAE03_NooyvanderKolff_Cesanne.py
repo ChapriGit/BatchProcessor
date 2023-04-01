@@ -17,14 +17,13 @@ from maya import cmds
 # TODO:
 # - Pivot
 # - Scaling
-# - Run & User Checks especially on the textfields!
+# - Run & User Checks especially on the text fields!
 # - Log file
 # - Set root folder
 # - Preference File
 
 # BUGS:
 # - Set selection to search without search italic
-# - Selecting without enter messes up next search
 
 class BatchProcessor(object):
     def __init__(self):
@@ -321,30 +320,30 @@ class BatchProcessor(object):
             if len(self._children) > 0:
                 for ch in self._children:
                     ch.add_filter_children()
+                if self.depth > 1:
+                    self.__parent.child_include(True)
             # Files
             else:
                 if not self.filtered:
                     self.set_included(True)
                     self.__parent.child_include(True)
 
-        def add_filter(self, filter_field: str, error_field: str):
+        def add_filter(self, button):
             """
             Sets the filter and immediately adds the children to the field.
 
-            :param filter_field: The field in which the user can enter their filter string.
-            :param error_field: The error field to be shown if no files were found.
+            :param button: The button connected to the filter addition
             """
-            self.filter(filter_field, error_field)
+            cmds.setFocus(button)
             self.add_filter_children()
 
-        def set_to_filter(self, filter_field: str, error_field: str):
+        def set_to_filter(self, button):
             """
             Sets the selection equal to the filter.
-            :param filter_field: The field in which the user can enter their filter string.
-            :param error_field: The error field to be shown if no files were found.
+            :param button: The button connected to the action.
             """
             self._children[0].include_children(False)
-            self.add_filter(filter_field, error_field)
+            self.add_filter(button)
 
         def prune_fbx(self, state) -> bool:
             pruned = state
@@ -489,10 +488,10 @@ class BatchProcessor(object):
         search_label = cmds.text(l="Search files:", font="boldLabelFont", h=20)
         search_field = cmds.textField(h=20)
         cmds.textField(search_field, e=True, cc=lambda _: self._folder_structure.filter(search_field, filter_error))
-        add_sel_filter_button = cmds.button(l="Add search to selection",
-                                            c=lambda _: self._folder_structure.add_filter(search_field, filter_error))
-        sel_filter_button = cmds.button(l="Set selection to search",
-                                        c=lambda _: self._folder_structure.set_to_filter(search_field, filter_error))
+        add_sel_filter_button = cmds.button(l="Add search to selection")
+        cmds.button(add_sel_filter_button, e=True, c=lambda _: self._folder_structure.add_filter(add_sel_filter_button))
+        sel_filter_button = cmds.button(l="Set selection to search")
+        cmds.button(sel_filter_button, e=True, c=lambda _: self._folder_structure.set_to_filter(sel_filter_button))
         cmds.formLayout(search, e=True, attachForm=[(search_label, "left", 10), (search_field, "right", 5),
                                                     (search_label, "top", 0), (search_field, "top", 0),
                                                     (sel_filter_button, "right", 5),
