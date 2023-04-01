@@ -29,6 +29,11 @@ class BatchProcessor(object):
         """
         Initialises a BatchProcessor object and runs the script.
         """
+        # -- Check whether already open -- #
+        if cmds.window("AssetLibraryBatchProcessor", ex=True):
+            cmds.setFocus("AssetLibraryBatchProcessor")
+            return
+
         # -- Setup variables to have a clear overview -- #
 
         self._root = r"C:\Users\cnvdk\DocumentsHowest\Scripting_2\TestProject\src"  # The source folder.
@@ -420,9 +425,6 @@ class BatchProcessor(object):
         Creates the BatchProcessor window if none yet exist. Otherwise, will set the focus on the already existing
         window.
         """
-        if cmds.window("AssetLibraryBatchProcessor", ex=True):
-            cmds.setFocus(self._window)
-            return
         # Create the window and set up the master layout.
         cmds.window("AssetLibraryBatchProcessor", t="Asset Library Batch Processor", widthHeight=(900, 535))
         master_layout = cmds.columnLayout(adj=True, rs=15)
@@ -879,25 +881,33 @@ class BatchProcessor(object):
 
         # Only on selected files.
         files = self._folder_structure.get_all_included_files()
-        print(files)
 
         # Do the processing thingies for every file.
         for f in files:
-            self.__adjust_pivots(f)
-            self.__adjust_dimensions(f)
+            _, ext = os.path.splitext(f)
+            if ext == ".fbx":
+                in_scene = cmds.ls(dag=True)
+                cmds.file(f, i=True)
+                fbx_obj = []
+                for obj in cmds.ls(dag=True):
+                    if obj not in in_scene:
+                        fbx_obj.append(obj)
+
+                if self.combine_meshes:
+                    fbx_obj = cmds.polyUnite(fbx_obj)
+
+                self.__adjust_pivots(fbx_obj)
+                self.__adjust_dimensions(fbx_obj)
             self.__write_file(f)
 
-    def __adjust_pivots(self, file: str):
-        if file[:-4] != ".fbx":
-            return
+    def __adjust_pivots(self, file: [str]):
         pass
 
-    def __adjust_dimensions(self, file: str):
+    def __adjust_dimensions(self, file: [str]):
         pass
 
     def __write_file(self, file: str):
-        if self.fbx_only and file[:4] != ".fbx":
-            return
+        pass
 
 
 # ############################################ #
