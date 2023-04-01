@@ -16,31 +16,50 @@ from maya import cmds
 
 # TODO:
 # - Pivot
-# - Scaling:
-#       - Add extra button-y things
-#       - Functionality
-# - Filter non-fbx
-# - Combine meshes or not
-# - Run & User Checks!
+# - Scaling
+# - Get the radiocollections input change
+# - Run & User Checks especially on the textfields!
 # - Log file
+# - Set root folder
+
+# - Set selection to search without search italic?
 
 class BatchProcessor(object):
     def __init__(self):
         """
         Initialises a BatchProcessor object and runs the script.
         """
-        # Start in current directory, have a button to change it
-        self._root = r"C:\Users\cnvdk\DocumentsHowest\Scripting_2\TestProject\src"
-        self._dest = ""
+        # -- Setup variables to have a clear overview -- #
 
-        # TODO: FBX checkbox
-        self.fbx_only = False
-        self.allow_stretching = False
+        # Start in current directory, have a button to change it.
+        self._root = r"C:\Users\cnvdk\DocumentsHowest\Scripting_2\TestProject\src"  # The source folder.
+        self._dest = ""                                                             # The destination folder.
+
+        # TODO: Options
+        # All variables to do with exporting and processing settings
+        self.fbx_only = True                            # True if only fbx files get copied over.
+        self.combine_meshes = True                      # True if wanting to combine meshes within one fbx file.
+        self.own_fbx = False                            # Each mesh will get their own fbx if true. (Combine is False)
+        self.pivot = True                               # True if pivot has to be changed.
+        self.pivot_placement = [1, 1, 1]                # Pivot placement per axis: 0 = min, 1 = middle, 2 = max.
+        self.scaling = True                             # True if scaling is wanted for the objects.
+        self.scale_all = ["", "", ""]                   # The text fields containing the scaling to snap objects to.
+        self.allow_stretching = True                    # True if models are allowed to be stretched.
+        self.main_axis = 0                              # The main axis in case stretching is not allowed.
+        self.scale = ""                                 # The text field containing the uniform scale.
 
         # TODO: Log file
+        # The log file.
         self.log_file = ""
-        self.__create_window()
 
+        # Window variables.
+        self._window = "AssetLibraryBatchProcessor"     # The window.
+        self.__files_layout = ""                        # The layout containing the file panel.
+        self.files_scroll = ""                          # The scroll layout containing the tree view.
+        self._folder_structure = None                   # The folder structure shown in the UI.
+
+        # -- Create the window and run -- #
+        self.__create_window()
         self.run()
 
     # ################################################################### #
@@ -330,6 +349,22 @@ class BatchProcessor(object):
             self._children[0].include_children(False)
             self.add_filter(filter_field, error_field)
 
+        def prune_fbx(self, state) -> bool:
+            pruned = state
+            if len(self._children) > 0:
+                for ch in self._children:
+                    pruned = ch.prune_fbx(state) and pruned
+                if self.depth > 0:
+                    cmds.checkBox(self.checkbox, e=True, en=not pruned)
+                return pruned
+
+            else:
+                if not self.name.endswith(".fbx"):
+                    cmds.checkBox(self.checkbox, e=True, en=not pruned)
+                    return pruned
+                else:
+                    return False
+
         def add_child(self, child):
             """
             Adds a child to the FileTree at top-level.
@@ -388,13 +423,12 @@ class BatchProcessor(object):
         Creates the BatchProcessor window if none yet exist. Otherwise, will set the focus on the already existing
         window.
         """
-        self._window = "AssetLibraryBatchProcessor"
         if cmds.window("AssetLibraryBatchProcessor", ex=True):
             cmds.setFocus(self._window)
             return
         # Create the window and set up the master layout.
         cmds.window("AssetLibraryBatchProcessor", t="Asset Library Batch Processor", widthHeight=(900, 535))
-        self.__master_layout = cmds.columnLayout(adj=True, rs=15)
+        master_layout = cmds.columnLayout(adj=True, rs=15)
 
         # Setup of the two sides of the main layout. Left for the files and Right for the options
         main_layout = cmds.formLayout()
@@ -404,13 +438,13 @@ class BatchProcessor(object):
 
         cmds.formLayout(main_layout, e=True,
                         attachForm=[(file_layout, "left", 10), (file_layout, "top", 10),
-                                    (settings_layout, "right", 10), (settings_layout, "top", 10),
+                                    (settings_layout, "right", 15), (settings_layout, "top", 10),
                                     (separator, "top", 10), (separator, "bottom", 5)],
                         attachControl=[(file_layout, "right", 15, separator),
                                        (separator, "right", 15, settings_layout)])
 
         # Set up the bottom buttons: Run and Cancel
-        cmds.setParent(self.__master_layout)
+        cmds.setParent(master_layout)
         cmds.separator(style="out")
         button_layout = cmds.formLayout()
         run_button = cmds.button(l="Run")
@@ -430,7 +464,7 @@ class BatchProcessor(object):
         # Setup of the Source selection
         target = cmds.formLayout(h=45)
         target_label = cmds.text(l="Source:", font="boldLabelFont", h=20)
-        target_field = cmds.textField(h=20, ed=False, bgc=[0.2, 0.2, 0.2])
+        target_field = cmds.textField(h=20, ed=False, bgc=[0.2, 0.2, 0.2], w=300)
         target_browse = cmds.button(l="Browse", h=20)
         cmds.formLayout(target, e=True, attachForm=[(target_label, "left", 10), (target_browse, "right", 5),
                                                     (target_label, "top", 16), (target_field, "top", 16),
@@ -498,15 +532,17 @@ class BatchProcessor(object):
 
         cmds.button(target_browse, e=True, c=lambda _: self.target_browse(target_field))
 
-        cmds.separator(p=settings_layout, h=30)
+        cmds.separator(p=settings_layout, h=25)
 
         # Setup of the process setting layouts.
-        (self.pivot, pivot_frame) = self.create_process_container(settings_layout, "Pivot")
-        self.create_pivot_frame(pivot_frame)
+        (pivot, pivot_frame) = self.create_process_container(settings_layout, "Pivot")
+        pivot_inner = self.create_pivot_frame(pivot_frame)
+        cmds.checkBox(pivot, e=True, cc=lambda state: self.set_pivot(state, pivot_inner))
 
         cmds.setParent(settings_layout)
-        (self.scale, scale_frame) = self.create_process_container(settings_layout, "Scaling")
-        self.create_scale_frame(scale_frame)
+        (scale, scale_frame) = self.create_process_container(settings_layout, "Scaling")
+        scale_inner = self.create_scale_frame(scale_frame)
+        cmds.checkBox(scale, e=True, cc=lambda state: self.set_scaling(state, scale_inner))
 
         return settings_layout
 
@@ -531,27 +567,37 @@ class BatchProcessor(object):
         Creates the layout for the pivot settings.
         :param frame: The parent frame layout.
         """
+        pivot_master = cmds.columnLayout(p=frame, adj=True)
+
         cmds.text(l="Set the pivot location of the meshes relative to the object's \nbounding box:", align="left",
                   w=350)
+        cmds.rowLayout(h=5, nc=1)
+        cmds.setParent("..")
 
         options = ["Min", "Middle", "Max"]
-        self.create_radio_group("X", frame, options)
-        self.create_radio_group("Y", frame, options)
-        self.create_radio_group("Z", frame, options)
-        cmds.rowLayout(h=5, p=frame)
+        self.create_radio_group("X", pivot_master, options)
+        self.create_radio_group("Y", pivot_master, options)
+        self.create_radio_group("Z", pivot_master, options)
+        cmds.rowLayout(h=5, p=pivot_master)
+
+        return pivot_master
 
     @staticmethod
-    def create_radio_group(label: str, layout: str, options: [str], default_opt: int = 1, width: int = 80):
+    def create_radio_group(label: str, layout: str, options: [str], default_opt: int = 1, label_width: int = 50,
+                           align: str = "center", width: int = 80) -> str:
         """
         Creates a group of radio-like buttons with the given options.
         :param label: The label in front of the radio buttons.
         :param layout: The parent layout.
         :param options: The labels for the possible buttons.
-        :param default_opt: The default selected index from 0 to len - 1
-        :param width: The buttons width
+        :param default_opt: The default selected index from 0 to len - 1.
+        :param label_width: The width of the label.
+        :param align: The alignment of the label.
+        :param width: The buttons' width.
+        :return: The name of the iconTextRadioCollection created.
         """
         cmds.rowLayout(nc=4, p=layout)
-        cmds.text(l=label, w=50, h=20)
+        cmds.text(l=label, w=label_width, h=20, align=align)
 
         radio_collection = cmds.iconTextRadioCollection()
         buttons = []
@@ -559,29 +605,42 @@ class BatchProcessor(object):
             button = cmds.iconTextRadioButton(st='textOnly', l=opt, w=width, bgc=[0.4, 0.4, 0.4], h=20)
             buttons.append(button)
         cmds.iconTextRadioCollection(radio_collection, e=True, select=buttons[default_opt])
+        return radio_collection
 
     def create_scale_frame(self, frame: str):
         """
         Creates the layout for the scale settings.
         :param frame: The layout to parent the new layout to.
         """
+        scale_master = cmds.columnLayout(p=frame, adj=True)
         cmds.text(l="Set the grid scale of the meshes. Meshes will be scaled up or \n"
-                    "down towards the nearest grid point:", align="left", w=350)
+                    "down towards the nearest grid point that is not zero:", align="left", w=350)
         button_width = 80
 
-        checkbox_layout = cmds.formLayout(p=frame)
-        scale_row = cmds.rowLayout(nc=4, p=checkbox_layout)
+        checkbox_layout = cmds.formLayout(p=scale_master)
+        scale_row = cmds.columnLayout(adj=True, p=checkbox_layout, visible=self.allow_stretching)
+        cmds.rowLayout(nc=4)
         cmds.text(l="Scaling", w=50, h=20)
-        cmds.textField(w=button_width, text="50")
-        cmds.textField(w=button_width, text="50")
-        cmds.textField(w=button_width, text="50")
+        scale_x = cmds.textField(w=button_width, text="50")
+        scale_y = cmds.textField(w=button_width, text="50")
+        scale_z = cmds.textField(w=button_width, text="50")
+        self.scale_all = [scale_x, scale_y, scale_z]
 
-        # TODO: Set main axis or logging note
-        self.allow_stretching = cmds.checkBox(v=False, l="Allow for stretching of meshes", p=checkbox_layout)
-        cmds.formLayout(checkbox_layout, e=True, attachForm={(self.allow_stretching, "left", 12),
-                                                             (scale_row, "top", 8), (scale_row, "left", 4),
-                                                             (self.allow_stretching, "right", 20)},
-                        attachControl={(self.allow_stretching, "top", 3, scale_row)})
+        non_stretch = cmds.columnLayout(p=checkbox_layout, visible=not self.allow_stretching)
+        self.create_radio_group("Main Axis", non_stretch, ["X", "Y", "Z"], 0, 60, "left", 70)
+        cmds.rowLayout(nc=2, p=non_stretch)
+        cmds.text(l="Scaling", w=58, h=22, align="left")
+        self.scale = cmds.textField(w=75, text="50")
+
+        allow_stretching = cmds.checkBox(v=self.allow_stretching, l="Allow stretching of meshes", p=checkbox_layout)
+        cmds.checkBox(allow_stretching, e=True, cc=lambda state: self.set_stretching(state, scale_row, non_stretch))
+
+        cmds.formLayout(checkbox_layout, e=True, attachForm={(scale_row, "left", 12), (allow_stretching, "top", 8),
+                                                             (allow_stretching, "left", 4), (scale_row, "right", 20),
+                                                             (non_stretch, "left", 18), (non_stretch, "right", 20)},
+                        attachControl={(scale_row, "top", 5, allow_stretching),
+                                       (non_stretch, "top", 5, allow_stretching)})
+        return scale_master
 
     def create_export_frame(self, frame: str):
         """
@@ -589,9 +648,19 @@ class BatchProcessor(object):
         :param frame: The parent of the layout.
         """
         export_layout = cmds.formLayout(p=frame)
-        self.fbx_only = cmds.checkBox(v=False, l="Do not copy non-fbx files", p=export_layout)
-        cmds.formLayout(export_layout, e=True, attachForm={(self.fbx_only, "left", 20), (self.fbx_only, "top", 5),
-                                                           (self.fbx_only, "right", 20)})
+        fbx_only = cmds.checkBox(v=not self.fbx_only, l="Also copy non-fbx files", p=export_layout,
+                                 cc=lambda state: self.set_prune_fbx(not state))
+        self.set_prune_fbx(self.fbx_only)
+
+        own_fbx = cmds.checkBox(v=self.own_fbx, l="Give each mesh its own fbx file", p=export_layout,
+                                cc=lambda state: self.set_own_fbx(state), en=not self.combine_meshes)
+        combine_meshes = cmds.checkBox(v=self.combine_meshes, l="Combine meshes", p=export_layout,
+                                       cc=lambda state: self.set_combine(state, own_fbx))
+        cmds.formLayout(export_layout, e=True, attachForm={(fbx_only, "left", 20), (fbx_only, "top", 5),
+                                                           (fbx_only, "right", 20), (combine_meshes, "left", 20),
+                                                           (combine_meshes, "right", 20), (own_fbx, "left", 45),
+                                                           (own_fbx, "bottom", 0)},
+                        attachControl={(combine_meshes, "top", 5, fbx_only), (own_fbx, "top", 0, combine_meshes)})
 
     # ################################################# #
     # ################ BUTTON COMMANDS ################ #
@@ -622,6 +691,30 @@ class BatchProcessor(object):
             if no_error:
                 self._dest = new_dest
                 cmds.textField(field, e=True, text=new_dest)
+
+    def set_stretching(self, state, ui_true, ui_false):
+        self.allow_stretching = state
+        cmds.columnLayout(ui_true, e=True, visible=state)
+        cmds.columnLayout(ui_false, e=True, visible=not state)
+
+    def set_prune_fbx(self, fbx_only: bool = True):
+        self.fbx_only = fbx_only
+        self._folder_structure.prune_fbx(fbx_only)
+
+    def set_combine(self, state, own_fbx_layout):
+        self.combine_meshes = state
+        cmds.checkBox(own_fbx_layout, e=True, en=not state)
+
+    def set_own_fbx(self, state):
+        self.own_fbx = state
+
+    def set_scaling(self, state, inner):
+        self.scaling = state
+        cmds.columnLayout(inner, e=True, en=state)
+
+    def set_pivot(self, state, inner):
+        self.pivot = state
+        cmds.columnLayout(inner, e=True, en=state)
 
     # ################################################# #
     # ################## USER CHECKS ################## #
@@ -745,10 +838,6 @@ class BatchProcessor(object):
         cmds.formLayout(self.__files_layout, e=True,
                         attachForm=[(tree.ui, 'left', tree.depth*20-15), (tree.ui, 'right', 10)],
                         attachControl=[(tree.ui, 'top', 0, last_ui)])
-
-    def set_prune_fbx(self, fbx_only: bool = True):
-        # TODO
-        pass
 
     def _run_processor(self) -> None:
         """
