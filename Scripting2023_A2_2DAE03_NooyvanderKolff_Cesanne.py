@@ -17,12 +17,14 @@ from maya import cmds
 # TODO:
 # - Pivot
 # - Scaling
-# - Get the radio collections input change
 # - Run & User Checks especially on the textfields!
 # - Log file
 # - Set root folder
+# - Preference File
 
-# - Set selection to search without search italic?
+# BUGS:
+# - Set selection to search without search italic
+# - Selecting without enter messes up next search
 
 class BatchProcessor(object):
     def __init__(self):
@@ -31,11 +33,9 @@ class BatchProcessor(object):
         """
         # -- Setup variables to have a clear overview -- #
 
-        # Start in current directory, have a button to change it.
         self._root = r"C:\Users\cnvdk\DocumentsHowest\Scripting_2\TestProject\src"  # The source folder.
         self._dest = ""                                                             # The destination folder.
 
-        # TODO: Options
         # All variables to do with exporting and processing settings
         self.fbx_only = True                            # True if only fbx files get copied over.
         self.combine_meshes = True                      # True if wanting to combine meshes within one fbx file.
@@ -267,7 +267,7 @@ class BatchProcessor(object):
             :param error_field: The error field to be shown if no files match the filter.
             """
             # Get the filter string out and set the filtered.
-            self.filtered = True
+            self.filtered = filter_field == ""
             filter_str = cmds.textField(filter_field, q=True, text=True)
 
             # Filters the children
@@ -287,22 +287,19 @@ class BatchProcessor(object):
             # Directories
             if len(self._children) > 0:
                 # Check all children
-                hidden = []
+                hidden = True
+                if self.collapsed:
+                    self._collapse()
                 for ch in self._children:
-                    hidden.append(ch.filter_str(filter_str))
+                    hidden = ch.filter_str(filter_str) and hidden
 
                 # Hide or show the folder depending on whether anything was found in its children.
-                file_found = False in hidden
-                self.filtered = not file_found
-                if file_found:
-                    if self.collapsed:
-                        self._collapse()
+                self.filtered = hidden
+                if not hidden:
                     cmds.rowLayout(self.ui, e=True, visible=True)
                 else:
-                    if not self.collapsed:
-                        self._collapse()
                     cmds.rowLayout(self.ui, e=True, visible=False)
-                return not file_found
+                return hidden
 
             # Files
             else:
@@ -313,7 +310,7 @@ class BatchProcessor(object):
                     return True
                 else:
                     self.filtered = False
-                    cmds.rowLayout(self.ui, e=True, visible=not self.collapsed)
+                    cmds.rowLayout(self.ui, e=True, visible=True)
                     return False
 
         def add_filter_children(self):
@@ -578,16 +575,20 @@ class BatchProcessor(object):
         cmds.setParent("..")
 
         options = ["Min", "Middle", "Max"]
-        self.create_radio_group("X", pivot_master, options)
-        self.create_radio_group("Y", pivot_master, options)
-        self.create_radio_group("Z", pivot_master, options)
+        pivot_x = self.create_radio_group("X", pivot_master, options)
+        pivot_y = self.create_radio_group("Y", pivot_master, options)
+        pivot_z = self.create_radio_group("Z", pivot_master, options)
+        for i in range(3):
+            cmds.iconTextRadioButton(pivot_x[i], e=True, onc=lambda _, j=i: self.set_pivot_placement(0, j))
+            cmds.iconTextRadioButton(pivot_y[i], e=True, onc=lambda _, j=i: self.set_pivot_placement(1, j))
+            cmds.iconTextRadioButton(pivot_z[i], e=True, onc=lambda _, j=i: self.set_pivot_placement(2, j))
         cmds.rowLayout(h=5, p=pivot_master)
 
         return pivot_master
 
     @staticmethod
     def create_radio_group(label: str, layout: str, options: [str], default_opt: int = 1, label_width: int = 50,
-                           align: str = "center", width: int = 80) -> str:
+                           align: str = "center", width: int = 80) -> [str]:
         """
         Creates a group of radio-like buttons with the given options.
         :param label: The label in front of the radio buttons.
@@ -597,7 +598,7 @@ class BatchProcessor(object):
         :param label_width: The width of the label.
         :param align: The alignment of the label.
         :param width: The buttons' width.
-        :return: The name of the iconTextRadioCollection created.
+        :return: The buttons created.
         """
         cmds.rowLayout(nc=4, p=layout)
         cmds.text(l=label, w=label_width, h=20, align=align)
@@ -608,7 +609,7 @@ class BatchProcessor(object):
             button = cmds.iconTextRadioButton(st='textOnly', l=opt, w=width, bgc=[0.4, 0.4, 0.4], h=20)
             buttons.append(button)
         cmds.iconTextRadioCollection(radio_collection, e=True, select=buttons[default_opt])
-        return radio_collection
+        return buttons
 
     def create_scale_frame(self, frame: str):
         """
@@ -630,7 +631,10 @@ class BatchProcessor(object):
         self.scale_all = [scale_x, scale_y, scale_z]
 
         non_stretch = cmds.columnLayout(p=checkbox_layout, visible=not self.allow_stretching)
-        self.create_radio_group("Main Axis", non_stretch, ["X", "Y", "Z"], 0, 60, "left", 70)
+        scale_axis = self.create_radio_group("Main Axis", non_stretch, ["X", "Y", "Z"], 0, 60, "left", 70)
+        for i in range(3):
+            cmds.iconTextRadioButton(scale_axis[i], e=True, onc=lambda _, j=i: self.set_main_axis(j))
+
         cmds.rowLayout(nc=2, p=non_stretch)
         cmds.text(l="Scaling", w=58, h=22, align="left")
         self.scale = cmds.textField(w=75, text="50")
@@ -718,6 +722,12 @@ class BatchProcessor(object):
     def set_pivot(self, state, inner):
         self.pivot = state
         cmds.columnLayout(inner, e=True, en=state)
+
+    def set_pivot_placement(self, axis, pivot_type):
+        self.pivot_placement[axis] = pivot_type
+
+    def set_main_axis(self, axis):
+        self.main_axis = axis
 
     # ################################################# #
     # ################## USER CHECKS ################## #
@@ -873,5 +883,5 @@ class BatchProcessor(object):
 
 processor = BatchProcessor()
 
-# TODO: Preference file + only one window open at a time? -> Set close command window!
+# TODO: Preference file
 # cmds.optionVar(ex=self.OPTION_VAR_NAME):
