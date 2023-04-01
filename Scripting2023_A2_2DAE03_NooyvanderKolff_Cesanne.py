@@ -17,7 +17,7 @@ from maya import cmds
 # TODO:
 # - Pivot
 # - Scaling
-# - Get the radiocollections input change
+# - Get the radio collections input change
 # - Run & User Checks especially on the textfields!
 # - Log file
 # - Set root folder
@@ -375,9 +375,12 @@ class BatchProcessor(object):
         def get_all_included_files(self) -> [str]:
             """
             Get all the included leaf node roots of the FileTree.
-            :return: An array containing all the roots of leaf nodes flagged as included.
+            :return: An array containing all the roots of leaf nodes flagged as included that are enabled.
             """
-            if not self.included:
+            enabled = True
+            if self.depth > 0:
+                enabled = cmds.checkBox(self.checkbox, q=True, en=True)
+            if not self.included or not enabled:
                 return []
 
             tree = []
