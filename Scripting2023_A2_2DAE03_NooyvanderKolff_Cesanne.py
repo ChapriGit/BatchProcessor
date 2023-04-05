@@ -914,7 +914,7 @@ class BatchProcessor(object):
             path = os.path.join(directory, file_name)
 
             # Do stuff with the file
-            _, ext = os.path.splitext(f)
+            short_path, ext = os.path.splitext(path)
             fbx_obj = []
             if ext == ".fbx":
                 in_scene = cmds.ls(dag=True)
@@ -927,10 +927,12 @@ class BatchProcessor(object):
                     fbx_obj = cmds.polyUnite(fbx_obj)
                     cmds.delete(fbx_obj, constructionHistory=True)
 
-                self.__adjust_pivots(fbx_obj)
-                self.__adjust_dimensions(fbx_obj)
+                if self.scaling:
+                    self.__adjust_dimensions(fbx_obj)
+                if self.pivot:
+                    self.__adjust_pivots(fbx_obj)
 
-                self.__write_file(f)
+                self.__write_file(fbx_obj, short_path)
 
                 fbx_obj = cmds.ls(fbx_obj, dag=True)
                 cmds.delete(fbx_obj)
@@ -942,14 +944,52 @@ class BatchProcessor(object):
             self.__mel_log(f"Files Processed: {i} out of {len(files)}", False)
             cmds.flushIdleQueue()
 
-    def __adjust_pivots(self, file: [str]):
-        pass
+    def __adjust_pivots(self, fbx: [str]):
+        for obj in fbx:
+            bbox = cmds.exactWorldBoundingBox(obj)
 
-    def __adjust_dimensions(self, file: [str]):
-        pass
+            pivot = []
+            for i in range(3):
+                if self.pivot_placement[i] == 1:
+                    pivot.append((bbox[i] + bbox[i + 3]) / 2)
+                else:
+                    pivot.append(bbox[int(self.pivot_placement[i]/2) * 3 + i])
 
-    def __write_file(self, file: str):
-        pass
+            cmds.xform(obj, piv=pivot, ws=True)
+
+    def __adjust_dimensions(self, fbx: [str]):
+        for obj in fbx:
+            bbox = cmds.exactWorldBoundingBox(obj)
+            cur_dimensions = [bbox[3] - bbox[0], bbox[4] - bbox[1], bbox[5] - bbox[2]]
+
+            if self.allow_stretching:
+                grid = self.scale[:3]
+            else:
+                grid = []
+                for i in range(3):
+                    grid.append(cur_dimensions[i] / cur_dimensions[0] * self.scale[3])
+
+            # Scale equals current dimensions divided by itself, times the rounded version of dimensions / grid
+            scale = []
+            for i in range(3):
+                scale.append(grid[i] / cur_dimensions[i] * round(cur_dimensions[i]/grid[i]))
+
+            # TODO: Can test here if too much stretching occurred.
+
+            cmds.scale(scale[0], scale[1], scale[2], obj, ws=True, r=True)
+
+    def __write_file(self, fbx: [str], path: str):
+        if self.own_fbx and not self.combine_meshes:
+            fbx = cmds.ls(fbx, dag=True)
+            for f in fbx:
+                full_path = path + "_" + f + ".fbx"
+                cmds.select(f)
+                cmds.file(full_path, es=True, type="fbx export")
+            return
+
+        path = path + ".fbx"
+        cmds.select(fbx)
+        cmds.file(path, es=True, type="fbx export")
 
 
 # ############################################ #
