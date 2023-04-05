@@ -17,12 +17,10 @@ from maya import cmds, mel
 #     - Make preset file on first open? Then check?
 
 # TODO:
-# - Pivot
-# - Scaling
-# - Run
 # - Log file
 # - Set root folder
 # - Preference File
+# - Progress window + Close the rest
 
 # Check all the docs and comments
 
@@ -700,7 +698,11 @@ class BatchProcessor(object):
         Browse for a new target location.
         :param field: The text field in which the target path should be displayed.
         """
-        new_dest_lst = cmds.fileDialog2(ds=1, fm=3, dir=self._dest)
+        if self._dest != "":
+            new_dest_lst = cmds.fileDialog2(ds=1, fm=3, dir=self._dest)
+        else:
+            new_dest_lst = cmds.fileDialog2(ds=1, fm=3, dir=self._root)
+
         if new_dest_lst is not None:
             new_dest = new_dest_lst[0]
             no_error = self.check_dest(new_dest, lambda: self.target_browse(field))
@@ -945,6 +947,7 @@ class BatchProcessor(object):
             cmds.flushIdleQueue()
 
     def __adjust_pivots(self, fbx: [str]):
+        fbx = cmds.ls(fbx, dag=True)
         for obj in fbx:
             bbox = cmds.exactWorldBoundingBox(obj)
 
@@ -956,8 +959,12 @@ class BatchProcessor(object):
                     pivot.append(bbox[int(self.pivot_placement[i]/2) * 3 + i])
 
             cmds.xform(obj, piv=pivot, ws=True)
+            # Move to zero and "Bake" Pivot
+            cmds.move(0, 0, 0, obj, a=True, scalePivotRelative=True)
+            cmds.makeIdentity(obj, apply=True, t=1, r=1, s=1, n=0)
 
     def __adjust_dimensions(self, fbx: [str]):
+        fbx = cmds.ls(fbx, dag=True)
         for obj in fbx:
             bbox = cmds.exactWorldBoundingBox(obj)
             cur_dimensions = [bbox[3] - bbox[0], bbox[4] - bbox[1], bbox[5] - bbox[2]]
@@ -967,20 +974,20 @@ class BatchProcessor(object):
             else:
                 grid = []
                 for i in range(3):
-                    grid.append(cur_dimensions[i] / cur_dimensions[0] * self.scale[3])
+                    grid.append(cur_dimensions[i] / cur_dimensions[self.main_axis] * self.scale[3])
 
             # Scale equals current dimensions divided by itself, times the rounded version of dimensions / grid
             scale = []
             for i in range(3):
-                scale.append(grid[i] / cur_dimensions[i] * round(cur_dimensions[i]/grid[i]))
+                scale.append(grid[i] / cur_dimensions[i] * max(round(cur_dimensions[i]/grid[i]), 1))
 
             # TODO: Can test here if too much stretching occurred.
 
             cmds.scale(scale[0], scale[1], scale[2], obj, ws=True, r=True)
 
     def __write_file(self, fbx: [str], path: str):
+        fbx = cmds.ls(fbx, dag=True)
         if self.own_fbx and not self.combine_meshes:
-            fbx = cmds.ls(fbx, dag=True)
             for f in fbx:
                 full_path = path + "_" + f + ".fbx"
                 cmds.select(f)
