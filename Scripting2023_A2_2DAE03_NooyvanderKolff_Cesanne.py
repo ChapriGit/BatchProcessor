@@ -1,5 +1,7 @@
 import os
-from maya import cmds
+import shutil
+
+from maya import cmds, mel
 
 
 # Asset Library Batch Processor
@@ -74,6 +76,10 @@ class BatchProcessor(object):
         """
         with open(self.log_file, "a") as f:
             f.write(line + "\n")
+
+    @staticmethod
+    def __mel_log(comment: str, result: bool = True):
+        mel.eval(f'print "{"Result: " if result else ""} {comment}\\n"')
 
     @staticmethod
     def error_message(fn, text: str, icn: str = "critical", title: str = "ERROR", *args, **kwargs):
@@ -426,7 +432,8 @@ class BatchProcessor(object):
         window.
         """
         # Create the window and set up the master layout.
-        cmds.window("AssetLibraryBatchProcessor", t="Asset Library Batch Processor", widthHeight=(900, 535))
+        cmds.window("AssetLibraryBatchProcessor", t="Asset Library Batch Processor", widthHeight=(900, 535),
+                    cc=self.close)
         master_layout = cmds.columnLayout(adj=True, rs=15)
 
         # Setup of the two sides of the main layout. Left for the files and Right for the options
@@ -804,9 +811,14 @@ class BatchProcessor(object):
         Run the BatchProcessor.
         """
         cmds.showWindow(self._window)
+        self.__mel_log("Opened Batch Processor")
 
     def cancel(self) -> None:
         cmds.deleteUI(self._window)
+        self.close()
+
+    def close(self) -> None:
+        self.__mel_log("Exited Batch Processor")
 
     def _update_all_files(self, directory: str, source_field: str) -> None:
         """
@@ -883,22 +895,52 @@ class BatchProcessor(object):
         files = self._folder_structure.get_all_included_files()
 
         # Do the processing thingies for every file.
+        root_len = len(self._root)
+        base_path = os.path.join(self._dest, "_output")
+
+        i = 0
         for f in files:
+            # Create folder structure necessary for the file
+
+            directory = os.path.dirname(f)
+            # Get directory in the output folder
+            directory = directory[root_len+1:]
+            directory = os.path.join(base_path, directory)
+
+            if not os.path.exists(directory):
+                os.makedirs(directory)
+
+            file_name = os.path.basename(f)
+            path = os.path.join(directory, file_name)
+
+            # Do stuff with the file
             _, ext = os.path.splitext(f)
+            fbx_obj = []
             if ext == ".fbx":
                 in_scene = cmds.ls(dag=True)
                 cmds.file(f, i=True)
-                fbx_obj = []
                 for obj in cmds.ls(dag=True):
                     if obj not in in_scene:
                         fbx_obj.append(obj)
 
                 if self.combine_meshes:
                     fbx_obj = cmds.polyUnite(fbx_obj)
+                    cmds.delete(fbx_obj, constructionHistory=True)
 
                 self.__adjust_pivots(fbx_obj)
                 self.__adjust_dimensions(fbx_obj)
-            self.__write_file(f)
+
+                self.__write_file(f)
+
+                fbx_obj = cmds.ls(fbx_obj, dag=True)
+                cmds.delete(fbx_obj)
+
+            else:
+                shutil.copy2(f, path)
+
+            i += 1
+            self.__mel_log(f"Files Processed: {i} out of {len(files)}", False)
+            cmds.flushIdleQueue()
 
     def __adjust_pivots(self, file: [str]):
         pass
