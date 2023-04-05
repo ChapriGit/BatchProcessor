@@ -1,3 +1,4 @@
+import json
 import os
 import shutil
 
@@ -18,13 +19,14 @@ from maya import cmds, mel
 
 # TODO:
 # - Log file
-# - Set root folder
-# - Preference File
 # - Progress window + Close the rest
 
 # Check all the docs and comments
 
 class BatchProcessor(object):
+    __OPTION_VAR_NAME = "Batch_Processor_Prefs"
+    __PREF_FILE_NAME = "AL_BatchProcessor_Prefs.json"
+
     def __init__(self):
         """
         Initialises a BatchProcessor object and runs the script.
@@ -36,8 +38,8 @@ class BatchProcessor(object):
 
         # -- Setup variables to have a clear overview -- #
 
-        self._root = r"C:\Users\cnvdk\DocumentsHowest\Scripting_2\TestProject\src"  # The source folder.
-        self._dest = ""                                                             # The destination folder.
+        self._root = cmds.workspace(q=True, rd=True)[:-1]   # The source folder.
+        self._dest = ""                                     # The destination folder.
 
         # All variables to do with exporting and processing settings
         self.fbx_only = True                            # True if only fbx files get copied over.
@@ -49,6 +51,9 @@ class BatchProcessor(object):
         self.scale = [50.0, 50.0, 50.0, 50.0]           # The text fields containing the scaling to snap objects to.
         self.allow_stretching = True                    # True if models are allowed to be stretched.
         self.main_axis = 0                              # The main axis in case stretching is not allowed.
+        self.dest_changed = False                       # Whether the destination has changed since starting the script.
+
+        self.__load_prefs()
 
         # TODO: Log file
         # The log file.
@@ -66,6 +71,44 @@ class BatchProcessor(object):
 
     # ################################################################### #
     # ################## Helper Functions and Classes ################### #
+    def __load_prefs(self):
+        if cmds.optionVar(ex=self.__OPTION_VAR_NAME):
+            path = cmds.optionVar(q=self.__OPTION_VAR_NAME)
+            # if found, then break
+            if os.path.exists(path):
+                with open(path, "r") as f:
+                    preset = json.loads(f.readline())
+
+                self._dest = preset["dest"]
+                self.fbx_only = preset["fbx_only"]
+                self.combine_meshes = preset["combine"]
+                self.own_fbx = preset["own_fbx"]
+                self.pivot = preset["pivot"]
+                self.pivot_placement = preset["pivot_placement"]
+                self.scaling = preset["scaling"]
+                self.scale = preset["scale"]
+                self.allow_stretching = preset["stretching"]
+                self.main_axis = preset["main_axis"]
+
+    def __save_prefs(self):
+        prefs = {
+                    "dest": self._dest,
+                    "fbx_only": self.fbx_only,
+                    "combine": self.combine_meshes,
+                    "own_fbx": self.own_fbx,
+                    "pivot": self.pivot,
+                    "pivot_placement": self.pivot_placement,
+                    "scaling": self.scaling,
+                    "scale": self.scale,
+                    "stretching": self.allow_stretching,
+                    "main_axis": self.main_axis
+                 }
+
+        path = cmds.internalVar(upd=True)
+        file = os.path.join(path, self.__PREF_FILE_NAME)
+        with open(file, "w") as f:
+            f.write(json.dumps(prefs))
+        cmds.optionVar(sv=(self.__OPTION_VAR_NAME, file))
 
     def __write_to_log(self, line: str):
         """
@@ -523,7 +566,7 @@ class BatchProcessor(object):
         # Setup of the picking of a Target directory.
         target = cmds.formLayout(h=50)
         target_label = cmds.text(l="Target:", font="boldLabelFont", h=20)
-        target_field = cmds.textField(h=20, ed=False, bgc=[0.2, 0.2, 0.2])
+        target_field = cmds.textField(h=20, ed=False, bgc=[0.2, 0.2, 0.2], text=self._dest)
         target_browse = cmds.button(l="Browse", h=20)
         cmds.formLayout(target, e=True, attachForm=[(target_label, "left", 10), (target_browse, "right", 5),
                                                     (target_label, "top", 16), (target_field, "top", 16),
@@ -542,12 +585,14 @@ class BatchProcessor(object):
         # Setup of the process setting layouts.
         (pivot, pivot_frame) = self.create_process_container(settings_layout, "Pivot")
         pivot_inner = self.create_pivot_frame(pivot_frame)
-        cmds.checkBox(pivot, e=True, cc=lambda state: self.set_pivot(state, pivot_inner))
+        cmds.checkBox(pivot, e=True, v=self.pivot, cc=lambda state: self.set_pivot(state, pivot_inner))
+        self.set_pivot(self.pivot, pivot_inner)
 
         cmds.setParent(settings_layout)
         (scale, scale_frame) = self.create_process_container(settings_layout, "Scaling")
         scale_inner = self.create_scale_frame(scale_frame)
-        cmds.checkBox(scale, e=True, cc=lambda state: self.set_scaling(state, scale_inner))
+        cmds.checkBox(scale, e=True, v=self.scaling, cc=lambda state: self.set_scaling(state, scale_inner))
+        self.set_scaling(self.scaling, scale_inner)
 
         return settings_layout
 
@@ -580,9 +625,9 @@ class BatchProcessor(object):
         cmds.setParent("..")
 
         options = ["Min", "Middle", "Max"]
-        pivot_x = self.create_radio_group("X", pivot_master, options)
-        pivot_y = self.create_radio_group("Y", pivot_master, options)
-        pivot_z = self.create_radio_group("Z", pivot_master, options)
+        pivot_x = self.create_radio_group("X", pivot_master, options, default_opt=self.pivot_placement[0])
+        pivot_y = self.create_radio_group("Y", pivot_master, options, default_opt=self.pivot_placement[1])
+        pivot_z = self.create_radio_group("Z", pivot_master, options, default_opt=self.pivot_placement[2])
         for i in range(3):
             cmds.iconTextRadioButton(pivot_x[i], e=True, onc=lambda _, j=i: self.set_pivot_placement(0, j))
             cmds.iconTextRadioButton(pivot_y[i], e=True, onc=lambda _, j=i: self.set_pivot_placement(1, j))
@@ -630,15 +675,15 @@ class BatchProcessor(object):
         scale_row = cmds.columnLayout(adj=True, p=checkbox_layout, visible=self.allow_stretching)
         cmds.rowLayout(nc=4)
         cmds.text(l="Scaling", w=50, h=20)
-        scale_x = cmds.textField(w=button_width, text="50")
+        scale_x = cmds.textField(w=button_width, text=self.scale[0])
         cmds.textField(scale_x, e=True, cc=lambda u_input: self.check_text_fields(scale_x, u_input, 0))
-        scale_y = cmds.textField(w=button_width, text="50")
+        scale_y = cmds.textField(w=button_width, text=self.scale[1])
         cmds.textField(scale_y, e=True, cc=lambda u_input: self.check_text_fields(scale_x, u_input, 1))
-        scale_z = cmds.textField(w=button_width, text="50")
+        scale_z = cmds.textField(w=button_width, text=self.scale[2])
         cmds.textField(scale_z, e=True, cc=lambda u_input: self.check_text_fields(scale_x, u_input, 2))
 
         non_stretch = cmds.columnLayout(p=checkbox_layout, visible=not self.allow_stretching)
-        scale_axis = self.create_radio_group("Main Axis", non_stretch, ["X", "Y", "Z"], 0, 60, "left", 70)
+        scale_axis = self.create_radio_group("Main Axis", non_stretch, ["X", "Y", "Z"], self.main_axis, 60, "left", 70)
         for i in range(3):
             cmds.iconTextRadioButton(scale_axis[i], e=True, onc=lambda _, j=i: self.set_main_axis(j))
 
@@ -709,6 +754,7 @@ class BatchProcessor(object):
 
             if no_error:
                 self._dest = new_dest
+                self.dest_changed = True
                 cmds.textField(field, e=True, text=new_dest)
 
     def set_stretching(self, state, ui_true, ui_false):
@@ -816,10 +862,11 @@ class BatchProcessor(object):
         self.__mel_log("Opened Batch Processor")
 
     def cancel(self) -> None:
+        cmds.setFocus(self._window)
         cmds.deleteUI(self._window)
-        self.close()
 
     def close(self) -> None:
+        self.__save_prefs()
         self.__mel_log("Exited Batch Processor")
 
     def _update_all_files(self, directory: str, source_field: str) -> None:
@@ -888,13 +935,18 @@ class BatchProcessor(object):
         """
         # Make sure all user input went through and got checked.
         cmds.setFocus(button)
-        if not self.check_dest(self._dest, lambda *args: None):
-            return
+        if not self.dest_changed:
+            if not self.check_dest(self._dest, lambda *args: None):
+                return
         if not self.check_source(self._root, lambda *args: None):
             return
 
         # Only on selected files.
         files = self._folder_structure.get_all_included_files()
+
+        if len(files) == 0:
+            self.error_message(lambda *args: None, "No files were selected.", title="Runtime Error")
+            return
 
         # Do the processing thingies for every file.
         root_len = len(self._root)
