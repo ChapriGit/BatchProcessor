@@ -1247,7 +1247,6 @@ class BatchProcessor(object):
         """
         fbx = cmds.ls(fbx, dag=True)
         for obj in fbx:
-            print(obj)
             bbox = cmds.exactWorldBoundingBox(obj)
 
             # Determine the new pivot placement in world space
@@ -1317,6 +1316,7 @@ class BatchProcessor(object):
 
             # Scale
             cmds.scale(scale[0], scale[1], scale[2], obj, ws=True, r=True)
+            cmds.makeIdentity(obj, apply=True, t=1, r=1, s=1, n=0)
 
         return warnings
 
