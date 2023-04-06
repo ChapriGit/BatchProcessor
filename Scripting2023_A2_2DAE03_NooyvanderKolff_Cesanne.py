@@ -163,22 +163,65 @@ class BatchProcessor(object):
         fn(*args, **kwargs)
 
     class LoadMore(object):
-        def __init__(self):
-            self.__node_up = ""
-            self.__node_down = ""
-            self.__parent = ""
-            self.__file_limit = False
-            self.__layout = ""
-            self.__depth = 0
+        def __init__(self, node_up, parent, layout, depth):
+            self.node_up = node_up
+            self.node_down = ""
+            self.__parent = parent
+            self.__layout = layout
+            self.__depth = depth
 
+            self.included = True
+            self.__fbx_only = False
             self.ui = self.__create_ui()
+            self.__neighbour_loaders = [None, None]
 
         def __create_ui(self):
-            node_layout = cmds.rowLayout(p=self.__layout)
+            node_layout = cmds.rowLayout(p=self.__layout, nc=1, adj=1)
+            cmds.button(l="-- Load More --", c=lambda _: self.load_more())
+            cmds.setParent("..")
             return node_layout
 
         def load_more(self):
-            pass
+            cmds.deleteUI(self.__parent.ui)
+            cmds.deleteUI(self.ui)
+            self.__parent.load_helper = None
+            last_ui, _ = self.__parent.create_tree(self.__layout, True, self.node_up, self.__depth + 4)
+            cmds.formLayout(self.__layout, e=True,
+                            attachControl=[(self.node_down, 'top', 0, last_ui)])
+            self.__parent.include_children(self.included)
+
+            if self.__neighbour_loaders[1] is not None:
+                self.__neighbour_loaders[1].node_up = last_ui
+            if self.__neighbour_loaders[0] is not None:
+                self.__neighbour_loaders[0].node_down = self.__parent.ui
+
+        def set_lower_node(self, node):
+            self.node_down = node
+
+        def hide(self, hidden: bool):
+            cmds.rowLayout(self.ui, e=True, vis=not hidden)
+
+        def include(self, included: bool):
+            self.included = included
+
+        def prune_fbx(self, fbx_only: bool = True):
+            self.__fbx_only = fbx_only
+
+        def get_all_included_files(self):
+            if not self.included:
+                return []
+
+            tree = []
+            for root, _, files in os.walk(self.__parent.get_root()):
+                for f in files:
+                    if not self.__fbx_only or f.casefold().endswith(".fbx"):
+                        path = os.path.join(root, f)
+                        tree.append(path)
+
+            return tree
+
+        def update_loaders(self, index, loader):
+            self.__neighbour_loaders[index] = loader
 
     # Helper inner class for file structure.
     class FileTree(object):
@@ -203,12 +246,16 @@ class BatchProcessor(object):
             self.__parent = parent                  # The parent of the FileTree node.
             self.bolded = False                     # Whether the name's look should be altered. (Bold or Oblique)
             self.included = True                    # Whether the FileTree node and its children should be included.
+            self.load_helper = None
 
             # Create a dummy ui
             self.ui = cmds.rowLayout(h=5)
             cmds.setParent("..")
 
-        def create_tree(self, layout, folder, last_ui):
+        def get_root(self):
+            return self.__root
+
+        def create_tree(self, layout, folder, last_ui, depth_limit, load_helper=None):
             """
             Updates all the files in the file system to have the given directory as root.
             :param last_ui:
@@ -216,21 +263,34 @@ class BatchProcessor(object):
             :param layout: The new root of the file system.
             """
             self.__create_ui(folder, layout, last_ui)
-            last_ui = self.ui
-
+            if load_helper is not None:
+                load_helper.set_lower_node(self.ui)
             if not folder:
-                return last_ui
+                return self.ui, None
 
+            if self.depth == depth_limit:
+                self.load_helper = BatchProcessor.LoadMore(last_ui, self, layout, self.depth + 1)
+                cmds.formLayout(layout, e=True,
+                                attachForm=[(self.load_helper.ui, 'left', (self.depth + 1) * 20),
+                                            (self.load_helper.ui, 'right', 10 + 15)],
+                                attachControl=[(self.load_helper.ui, 'top', 0, self.ui)])
+                if load_helper is not None:
+                    self.load_helper.update_loaders(0, load_helper)
+                    load_helper.update_loaders(1, self.load_helper)
+                return self.load_helper.ui, self.load_helper
+
+            load_helper = None
+            last_ui = self.ui
             entries = sorted(os.scandir(self.__root), key=lambda x: (x.is_dir()))
 
             # -- Create the Tree -- #
             for entry in entries:
                 path = os.path.join(self.__root, entry.name)
-                child_tree = BatchProcessor.FileTree(path, self.depth + 1, layout)
-                last_ui = child_tree.create_tree(layout, entry.is_dir(), last_ui)
+                child_tree = BatchProcessor.FileTree(path, self.depth + 1, self)
+                last_ui, load_helper = child_tree.create_tree(layout, entry.is_dir(), last_ui, depth_limit, load_helper)
                 self.add_child(child_tree)
 
-            return last_ui
+            return last_ui, load_helper
 
         def __create_ui(self, folder: bool, parent: str, last_ui):
             """
@@ -280,6 +340,9 @@ class BatchProcessor(object):
             for ch in self._children:
                 ch.hide(hidden)
 
+            if self.load_helper is not None:
+                self.load_helper.hide(hidden)
+
         def hide(self, hidden: bool = False) -> None:
             """
             Hides or shows the UI of the FileTree.
@@ -293,6 +356,9 @@ class BatchProcessor(object):
             # Also hide the children.
             for ch in self._children:
                 ch.hide(hidden)
+
+            if self.load_helper is not None:
+                self.load_helper.hide(hidden)
 
         def set_included(self, state: bool):
             """
@@ -325,6 +391,9 @@ class BatchProcessor(object):
             for ch in self._children:
                 ch.include_children(self.included)
 
+            if self.load_helper is not None:
+                self.load_helper.include(self.included)
+
             # Re-enable the parent if excluded.
             if self.depth > 1:
                 self.__parent.child_include(self.included)
@@ -339,6 +408,9 @@ class BatchProcessor(object):
             # Also set the children
             for ch in self._children:
                 ch.include_children(self.included)
+
+            if self.load_helper is not None:
+                self.load_helper.include(self.included)
 
         def child_include(self, state: bool = True) -> None:
             """
@@ -391,9 +463,9 @@ class BatchProcessor(object):
             filter_str = cmds.textField(filter_field, q=True, text=True)
 
             # Filters the children
-            hidden = False
+            hidden = True
             for ch in self._children:
-                hidden = ch.filter_str(filter_str)
+                hidden = ch.filter_str(filter_str) and hidden
 
             # Setting the error field in case all are hidden.
             cmds.text(error_field, e=True, visible=hidden)
@@ -478,6 +550,8 @@ class BatchProcessor(object):
             if len(self._children) > 0:
                 for ch in self._children:
                     pruned = ch.prune_fbx(state) and pruned
+                if self.load_helper is not None:
+                    self.load_helper.prune_fbx(state)
                 if self.depth > 0:
                     cmds.checkBox(self.checkbox, e=True, en=not pruned)
                 return pruned
@@ -515,6 +589,8 @@ class BatchProcessor(object):
             if len(self._children) > 0:
                 for ch in self._children:
                     tree += ch.get_all_included_files()
+                if self.load_helper is not None:
+                    tree += self.load_helper.get_all_included_files()
             else:
                 tree.append(self.__root)
 
@@ -1050,21 +1126,11 @@ class BatchProcessor(object):
 
         # -- Create the Tree -- #
         self.__folder_structure = self.FileTree(self._root, 0)
-        self.__folder_structure.create_tree(self.__files_layout, True, None)
+        self.__folder_structure.create_tree(self.__files_layout, True, None, 5)
 
         # Set the source text field to the root.
         cmds.textField(source_field, e=True, text=self._root)
         self.__folder_structure.prune_fbx(self.fbx_only)
-
-    def set_file_sys_frame(self, tree: FileTree, last_ui: str) -> None:
-        """
-        Adds the FileTree root node to the UI.
-        :param tree: The FileTree of which the root needs to be added.
-        :param last_ui: The node above this one in the window.
-        """
-        cmds.formLayout(self.__files_layout, e=True,
-                        attachForm=[(tree.ui, 'left', tree.depth * 20 - 15), (tree.ui, 'right', 10)],
-                        attachControl=[(tree.ui, 'top', 0, last_ui)])
 
     def __run_processor(self) -> None:
         """
