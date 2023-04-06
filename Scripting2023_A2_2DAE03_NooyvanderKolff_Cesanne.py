@@ -221,8 +221,10 @@ class BatchProcessor(object):
             if not folder:
                 return last_ui
 
+            entries = sorted(os.scandir(self.__root), key=lambda x: (x.is_dir()))
+
             # -- Create the Tree -- #
-            for entry in sorted(os.scandir(self.__root), key=lambda x: (x.is_dir())):
+            for entry in entries:
                 path = os.path.join(self.__root, entry.name)
                 child_tree = BatchProcessor.FileTree(path, self.depth + 1, layout)
                 last_ui = child_tree.create_tree(layout, entry.is_dir(), last_ui)
