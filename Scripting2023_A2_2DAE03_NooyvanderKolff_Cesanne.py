@@ -434,8 +434,8 @@ class BatchProcessor(object):
                 return pruned
 
             # Files
-            else:
-                if not self.name.endswith(".fbx"):
+            elif self.depth > 0:
+                if not self.name.casefold().endswith(".fbx"):
                     cmds.checkBox(self.checkbox, e=True, en=not pruned)
                     return pruned
                 else:
@@ -905,7 +905,7 @@ class BatchProcessor(object):
         sub_folder_walk = os.walk(root)
         for root, dirs, files in sub_folder_walk:
             for f in files:
-                if f.endswith(".fbx"):
+                if f.casefold().endswith(".fbx"):
                     return True
         else:
             self.error_message(fn, "Please choose a folder structure containing at least one fbx file", *args, **kwargs)
@@ -922,7 +922,7 @@ class BatchProcessor(object):
         :return: True if the destination location can be used, otherwise False.
         """
         # Destination is not empty.
-        if root is "":
+        if root == "":
             self.error_message(fn, "No target folder was set. Please select one.",
                                *args, **kwargs)
             return False
@@ -1042,6 +1042,7 @@ class BatchProcessor(object):
 
         # Set the source text field to the root.
         cmds.textField(source_field, e=True, text=self._root)
+        self.__folder_structure.prune_fbx(self.fbx_only)
 
     def set_file_sys_frame(self, tree: FileTree, last_ui: str) -> None:
         """
@@ -1076,6 +1077,10 @@ class BatchProcessor(object):
         root_len = len(self._root)
         base_path = os.path.join(self._dest, "_output")
 
+        # Create directory in the output folder if not yet existent
+        if not os.path.exists(base_path):
+            os.makedirs(base_path)
+
         # Setup log file
         self._log_file = os.path.join(base_path, "log.txt")
         self.__write_to_log(f"{time.asctime()}: Processing of {len(files)} files. \n")
@@ -1105,7 +1110,7 @@ class BatchProcessor(object):
 
             short_path, ext = os.path.splitext(path)
             fbx_obj = []
-            if ext == ".fbx":
+            if ext.casefold() == ".fbx":
                 # Get a selection of the files loaded in.
                 in_scene = cmds.ls(dag=True)
                 cmds.file(f, i=True)
@@ -1124,6 +1129,7 @@ class BatchProcessor(object):
                 if self.pivot:
                     self.__adjust_pivots(fbx_obj)
 
+                # Write to fbx
                 warnings += self.__write_file(fbx_obj, short_path)
 
                 # Clean up the maya scene
@@ -1139,8 +1145,9 @@ class BatchProcessor(object):
 
             # Update the progress bar and make sure files got properly written out
             i += 1
-            self.__update_progress(process_text, process_bar, button, warnings)
+
             cmds.flushIdleQueue()
+            self.__update_progress(process_text, process_bar, button, warnings)
 
         # Final notes for the user.
         time_elapsed = time.time() - timestamp
@@ -1155,6 +1162,7 @@ class BatchProcessor(object):
         """
         fbx = cmds.ls(fbx, dag=True)
         for obj in fbx:
+            print(obj)
             bbox = cmds.exactWorldBoundingBox(obj)
 
             # Determine the new pivot placement in world space
