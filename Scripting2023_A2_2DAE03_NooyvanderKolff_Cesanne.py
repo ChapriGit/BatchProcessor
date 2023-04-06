@@ -1089,7 +1089,6 @@ class BatchProcessor(object):
         process_text, process_bar, button = self.__show_progress(len(files))
 
         # -- Processing -- #
-
         i = 0
         warnings = 0
         for f in files:
@@ -1119,9 +1118,12 @@ class BatchProcessor(object):
                         fbx_obj.append(obj)
 
                 # Combine the meshes if wanted
-                if self.combine_meshes:
-                    fbx_obj = cmds.polyUnite(fbx_obj)
-                    cmds.delete(fbx_obj, constructionHistory=True)
+                if self.combine_meshes and len(fbx_obj) > 1:
+                    try:
+                        fbx_obj = cmds.polyUnite(fbx_obj)
+                        cmds.delete(fbx_obj, constructionHistory=True)
+                    except RuntimeError:
+                        pass
 
                 # Processes
                 if self.scaling:
