@@ -213,6 +213,7 @@ class BatchProcessor(object):
 
             tree = []
             for root, _, files in os.walk(self.__parent.get_root()):
+                print(f"{root} - {files}")
                 for f in files:
                     if not self.__fbx_only or f.casefold().endswith(".fbx"):
                         path = os.path.join(root, f)
@@ -247,6 +248,7 @@ class BatchProcessor(object):
             self.bolded = False                     # Whether the name's look should be altered. (Bold or Oblique)
             self.included = True                    # Whether the FileTree node and its children should be included.
             self.load_helper = None
+            self.__folder = False
 
             # Create a dummy ui
             self.ui = cmds.rowLayout(h=5)
@@ -263,6 +265,7 @@ class BatchProcessor(object):
             :param layout: The new root of the file system.
             """
             self.__create_ui(folder, layout, last_ui)
+            self.__folder = folder
             if load_helper is not None:
                 load_helper.set_lower_node(self.ui)
             if not folder:
@@ -395,7 +398,7 @@ class BatchProcessor(object):
                 self.load_helper.include(self.included)
 
             # Re-enable the parent if excluded.
-            if self.depth > 1:
+            if self.__parent is not None:
                 self.__parent.child_include(self.included)
 
         def include_children(self, state: bool) -> None:
@@ -441,7 +444,7 @@ class BatchProcessor(object):
                     cmds.text(self.label, e=True, font="obliqueLabelFont")
                     self.bolded = True
 
-                if self.depth > 1:
+                if self.__parent is not None:
                     self.__parent.child_include(state)
 
             else:
@@ -513,7 +516,7 @@ class BatchProcessor(object):
             if len(self._children) > 0:
                 for ch in self._children:
                     ch.add_filter_children()
-                if self.depth > 1:
+                if self.__parent is not None:
                     self.__parent.child_include(True)
             # Files
             else:
@@ -552,8 +555,7 @@ class BatchProcessor(object):
                     pruned = ch.prune_fbx(state) and pruned
                 if self.load_helper is not None:
                     self.load_helper.prune_fbx(state)
-                if self.depth > 0:
-                    cmds.checkBox(self.checkbox, e=True, en=not pruned)
+                cmds.checkBox(self.checkbox, e=True, en=not pruned)
                 return pruned
 
             # Files
@@ -577,8 +579,7 @@ class BatchProcessor(object):
             :return: An array containing all the roots of leaf nodes flagged as included that are enabled.
             """
             enabled = True
-            if self.depth > 0:
-                enabled = cmds.checkBox(self.checkbox, q=True, en=True)
+            enabled = cmds.checkBox(self.checkbox, q=True, en=True)
 
             # Don't go down the children if parent not enabled or included.
             if not self.included or not enabled:
@@ -586,7 +587,7 @@ class BatchProcessor(object):
 
             # Create the array
             tree = []
-            if len(self._children) > 0:
+            if self.__folder:
                 for ch in self._children:
                     tree += ch.get_all_included_files()
                 if self.load_helper is not None:
