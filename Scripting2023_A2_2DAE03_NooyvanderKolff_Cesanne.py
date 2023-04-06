@@ -1,6 +1,7 @@
 import json
 import os
 import shutil
+import time
 
 from maya import cmds, mel
 
@@ -18,10 +19,7 @@ from maya import cmds, mel
 #     - Make preset file on first open? Then check?
 
 # TODO:
-# - Log file
-# - Progress window + Close the rest
-
-# Check all the docs and comments
+# - Check all the docs and comments
 
 class BatchProcessor(object):
     __OPTION_VAR_NAME = "Batch_Processor_Prefs"
@@ -35,6 +33,10 @@ class BatchProcessor(object):
         if cmds.window("AssetLibraryBatchProcessor", ex=True):
             cmds.setFocus("AssetLibraryBatchProcessor")
             return
+
+        # if cmds.window("ALBP_Progress", ex=True):
+        #     cmds.setFocus("ALBP_Progress")
+        #     return
 
         # -- Setup variables to have a clear overview -- #
 
@@ -64,6 +66,8 @@ class BatchProcessor(object):
         self.__files_layout = ""                        # The layout containing the file panel.
         self.files_scroll = ""                          # The scroll layout containing the tree view.
         self._folder_structure = None                   # The folder structure shown in the UI.
+
+        self.__progress_window = "ALBP_Progress"
 
         # -- Create the window and run -- #
         self.__create_window()
@@ -495,7 +499,7 @@ class BatchProcessor(object):
         cmds.separator(style="out")
         button_layout = cmds.formLayout()
         run_button = cmds.button(l="Run")
-        cmds.button(run_button, e=True, c=lambda _: self.__run_processor(run_button))
+        cmds.button(run_button, e=True, c=lambda _: self.__run_processor())
         cancel_button = cmds.button(l="Cancel", c=lambda _: self.cancel())
         cmds.formLayout(button_layout, e=True, attachForm=[(cancel_button, "right", 10)],
                         attachControl=[(run_button, "right", 10, cancel_button)])
@@ -929,12 +933,12 @@ class BatchProcessor(object):
                         attachForm=[(tree.ui, 'left', tree.depth*20-15), (tree.ui, 'right', 10)],
                         attachControl=[(tree.ui, 'top', 0, last_ui)])
 
-    def __run_processor(self, button) -> None:
+    def __run_processor(self) -> None:
         """
         Running the actual processing of the BatchProcessor.
         """
         # Make sure all user input went through and got checked.
-        cmds.setFocus(button)
+        cmds.setFocus(self._window)
         if not self.dest_changed:
             if not self.check_dest(self._dest, lambda *args: None):
                 return
@@ -952,9 +956,17 @@ class BatchProcessor(object):
         root_len = len(self._root)
         base_path = os.path.join(self._dest, "_output")
 
+        # Setup log file
+        self.log_file = os.path.join(base_path, "log.txt")
+        self.__write_to_log(f"{time.asctime()}: Processing of {len(files)} files. \n")
+        timestamp = time.time()
+
+        process_text, process_bar, button = self.__show_progress(len(files))
+
         i = 0
+        warnings = 0
         for f in files:
-            # Create folder structure necessary for the file
+            # -- Create folder structure necessary for the file -- #
 
             directory = os.path.dirname(f)
             # Get directory in the output folder
@@ -967,7 +979,7 @@ class BatchProcessor(object):
             file_name = os.path.basename(f)
             path = os.path.join(directory, file_name)
 
-            # Do stuff with the file
+            # -- Do stuff with the file -- #
             short_path, ext = os.path.splitext(path)
             fbx_obj = []
             if ext == ".fbx":
@@ -982,21 +994,29 @@ class BatchProcessor(object):
                     cmds.delete(fbx_obj, constructionHistory=True)
 
                 if self.scaling:
-                    self.__adjust_dimensions(fbx_obj)
+                    warnings += self.__adjust_dimensions(fbx_obj, f)
                 if self.pivot:
                     self.__adjust_pivots(fbx_obj)
 
-                self.__write_file(fbx_obj, short_path)
+                warnings += self.__write_file(fbx_obj, short_path)
 
                 fbx_obj = cmds.ls(fbx_obj, dag=True)
                 cmds.delete(fbx_obj)
 
             else:
+                if os.path.exists(path):
+                    warnings += 1
+                    self.__write_to_log(f"-- WARNING: {path} already existed. Original contents overridden.")
                 shutil.copy2(f, path)
 
             i += 1
-            self.__mel_log(f"Files Processed: {i} out of {len(files)}", False)
+            self.__update_progress(process_text, process_bar, button, warnings)
             cmds.flushIdleQueue()
+
+        time_elapsed = time.time() - timestamp
+        self.__mel_log(f"Files Processed: {i} out of {len(files)}")
+        self.__write_to_log(f"\n Processing {i} out of {len(files)} finished in {time_elapsed} seconds with "
+                            f"{warnings} warnings. \n")
 
     def __adjust_pivots(self, fbx: [str]):
         fbx = cmds.ls(fbx, dag=True)
@@ -1015,8 +1035,10 @@ class BatchProcessor(object):
             cmds.move(0, 0, 0, obj, a=True, scalePivotRelative=True)
             cmds.makeIdentity(obj, apply=True, t=1, r=1, s=1, n=0)
 
-    def __adjust_dimensions(self, fbx: [str]):
+    def __adjust_dimensions(self, fbx: [str], f: str):
         fbx = cmds.ls(fbx, dag=True)
+
+        warnings = 0
         for obj in fbx:
             bbox = cmds.exactWorldBoundingBox(obj)
             cur_dimensions = [bbox[3] - bbox[0], bbox[4] - bbox[1], bbox[5] - bbox[2]]
@@ -1030,31 +1052,90 @@ class BatchProcessor(object):
 
             # Scale equals current dimensions divided by itself, times the rounded version of dimensions / grid
             scale = []
+            warning_grid = False
+            warning_stretch = False
             for i in range(3):
-                scale.append(grid[i] / cur_dimensions[i] * max(round(cur_dimensions[i]/grid[i]), 1))
+                scale_dim = grid[i] / cur_dimensions[i] * max(round(cur_dimensions[i]/grid[i]), 1)
+                scale.append(scale_dim)
 
-            # TODO: Can test here if too much stretching occurred.
+                if not 0.55 < scale_dim < 1.45:
+                    warning_grid = True
+
+                for j in range(i):
+                    stretch = scale[j] / scale[i]
+                    if not 0.85 < stretch < 1.15:
+                        warning_stretch = True
+
+            if warning_grid:
+                self.__write_to_log(f"-- WARNING: {obj} in file {f} deviates far from the "
+                                    f"grid with a scaling of {scale}.")
+                warnings += 1
+
+            if warning_stretch:
+                self.__write_to_log(f"-- WARNING: {obj} in file {f} has severe stretching along its axes "
+                                    f"with scaling of {scale}.")
+                warnings += 1
 
             cmds.scale(scale[0], scale[1], scale[2], obj, ws=True, r=True)
 
+        return warnings
+
     def __write_file(self, fbx: [str], path: str):
-        fbx = cmds.ls(fbx, dag=True)
+        fbx = cmds.ls(fbx, dag=True, tr=True)
+        warnings = 0
         if self.own_fbx and not self.combine_meshes:
             for f in fbx:
                 full_path = path + "_" + f + ".fbx"
+                if os.path.exists(full_path):
+                    warnings += 1
+                    self.__write_to_log(f"-- WARNING: {full_path} already existed. Original contents overridden.")
+
                 cmds.select(f)
                 cmds.file(full_path, es=True, type="fbx export")
-            return
+            return warnings
 
         path = path + ".fbx"
+        if os.path.exists(path):
+            warnings += 1
+            self.__write_to_log(f"-- WARNING: {path} already existed. Original contents overridden.")
         cmds.select(fbx)
         cmds.file(path, es=True, type="fbx export")
+
+        return warnings
+
+    def __show_progress(self, max_value):
+        if cmds.window(self.__progress_window, ex=True):
+            cmds.showWindow(self.__progress_window)
+        else:
+            cmds.window(self.__progress_window, title="Processing in Progress", width=300, height=100)
+        form = cmds.formLayout()
+        text = cmds.text(l=f"0/{max_value} Files Processed")
+        bar = cmds.progressBar(h=30, max=max_value)
+        button = cmds.button(l="Close", c=lambda _: cmds.deleteUI(self.__progress_window), vis=False)
+        cmds.formLayout(form, e=True, attachForm={(text, "top", 10), (bar, "left", 25), (bar, "right", 25),
+                                                  (text, "left", 5), (text, "right", 5), (button, "left", 150),
+                                                  (button, "right", 150)},
+                        attachControl={(bar, "top", 15, text), (button, "top", 25, bar)})
+        cmds.showWindow(self.__progress_window)
+
+        return text, bar, button
+
+    @staticmethod
+    def __update_progress(text, bar, button, warnings):
+        nr = cmds.progressBar(bar, q=True, pr=True) + 1
+        max_value = cmds.progressBar(bar, q=True, max=True)
+        cmds.text(text, e=True, l=f"{nr}/{max_value} Files Processed")
+
+        if nr == max_value:
+            cmds.progressBar(bar, e=True, ep=True)
+            cmds.button(button, e=True, vis=True)
+            cmds.text(text, e=True, l=f"{nr} files processed with {warnings} warnings. \n"
+                                      f"See the log for more information.")
+
+        cmds.progressBar(bar, e=True, pr=nr)
 
 
 # ############################################ #
 # ################### MAIN ################### #
 
 processor = BatchProcessor()
-
-# TODO: Preference file
-# cmds.optionVar(ex=self.OPTION_VAR_NAME):
