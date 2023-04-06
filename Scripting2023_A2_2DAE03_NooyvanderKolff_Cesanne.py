@@ -90,6 +90,7 @@ class BatchProcessor(object):
                 with open(path, "r") as f:
                     preset = json.loads(f.readline())
 
+                self._root = preset["source"]
                 self._dest = preset["dest"]
                 self.fbx_only = preset["fbx_only"]
                 self.combine_meshes = preset["combine"]
@@ -107,6 +108,7 @@ class BatchProcessor(object):
         """
 
         prefs = {
+                    "source": self._root,
                     "dest": self._dest,
                     "fbx_only": self.fbx_only,
                     "combine": self.combine_meshes,
@@ -160,18 +162,34 @@ class BatchProcessor(object):
         cmds.confirmDialog(icn=icn, message=text, b="Close", title=title)
         fn(*args, **kwargs)
 
+    class LoadMore(object):
+        def __init__(self):
+            self.__node_up = ""
+            self.__node_down = ""
+            self.__parent = ""
+            self.__file_limit = False
+            self.__layout = ""
+            self.__depth = 0
+
+            self.ui = self.__create_ui()
+
+        def __create_ui(self):
+            node_layout = cmds.rowLayout(p=self.__layout)
+            return node_layout
+
+        def load_more(self):
+            pass
+
     # Helper inner class for file structure.
     class FileTree(object):
         """
         A class representing a file tree.
         """
-        def __init__(self, root: str, depth: int, layout: str, folder: bool = True, parent=None):
+        def __init__(self, root: str, depth: int, parent=None):
             """
             Creates a FileTree object, which represents a folder structure.
             :param root: The root path of the folder.
             :param depth: The depth of the folder.
-            :param layout: The parent layout in which the folder structure is shown.
-            :param folder: True if the structure is a folder, false if it represents a file.
             :param parent: The parent tree of this FileTree.
             """
 
@@ -186,14 +204,33 @@ class BatchProcessor(object):
             self.bolded = False                     # Whether the name's look should be altered. (Bold or Oblique)
             self.included = True                    # Whether the FileTree node and its children should be included.
 
-            # If not the root, create the ui for it. Else create a row layout, also creating some space at the top.
-            if depth > 0:
-                self.ui = self.__create_ui(folder, layout)
-            else:
-                self.ui = cmds.rowLayout(h=5)
-                cmds.setParent("..")
+            # Create a dummy ui
+            self.ui = cmds.rowLayout(h=5)
+            cmds.setParent("..")
 
-        def __create_ui(self, folder: bool, parent: str) -> str:
+        def create_tree(self, layout, folder, last_ui):
+            """
+            Updates all the files in the file system to have the given directory as root.
+            :param last_ui:
+            :param folder:
+            :param layout: The new root of the file system.
+            """
+            self.__create_ui(folder, layout, last_ui)
+            last_ui = self.ui
+
+            if not folder:
+                return last_ui
+
+            # -- Create the Tree -- #
+            for entry in sorted(os.scandir(self.__root), key=lambda x: (x.is_dir())):
+                path = os.path.join(self.__root, entry.name)
+                child_tree = BatchProcessor.FileTree(path, self.depth + 1, layout)
+                last_ui = child_tree.create_tree(layout, entry.is_dir(), last_ui)
+                self.add_child(child_tree)
+
+            return last_ui
+
+        def __create_ui(self, folder: bool, parent: str, last_ui):
             """
             Creates a row layout UI of the FileTree.
             :param folder: True if the structure is a folder, false if it represents a file.
@@ -202,19 +239,29 @@ class BatchProcessor(object):
             """
 
             # Creates the overarching row layout.
-            layout = cmds.rowLayout(p=parent, nc=3, adjustableColumn=3, cw=[1, 20])
+            self.ui = cmds.rowLayout(p=parent, nc=3, adjustableColumn=3, cw=[1, 20])
 
             # If it is a folder, make it collapsible.
             if folder:
                 self.icon = cmds.iconTextButton(style='iconOnly', image1='arrowDown.png', align='center', w=20)
                 cmds.iconTextButton(self.icon, e=True, command=self._collapse)
-                cmds.rowLayout(layout, e=True, h=20, bgc=[0.1, 0.1, 0.13])
+                cmds.rowLayout(self.ui, e=True, h=20, bgc=[0.1, 0.1, 0.13])
 
             # Create a checkbox for the lay-out.
             self.checkbox = cmds.checkBox(v=True, l="", height=15)
             self.label = cmds.text(label=self.name, align="left", font="plainLabelFont")
             cmds.checkBox(self.checkbox, e=True, cc=lambda _: self.include())
-            return layout
+
+            if last_ui is None:
+                cmds.formLayout(parent, e=True,
+                                attachForm=[(self.ui, 'left', self.depth * 20), (self.ui, 'right', 10),
+                                            (self.ui, 'top', 5)])
+            else:
+                cmds.formLayout(parent, e=True,
+                                attachForm=[(self.ui, 'left', self.depth * 20), (self.ui, 'right', 10)],
+                                attachControl=[(self.ui, 'top', 0, last_ui)])
+
+            cmds.setParent(parent)
 
         def _collapse(self) -> None:
             """
@@ -400,7 +447,7 @@ class BatchProcessor(object):
                     self.set_included(True)
                     self.__parent.child_include(True)
 
-        def add_filter(self, button):
+        def add_filter(self, button: str):
             """
             Sets the filter and immediately adds the children to the field.
 
@@ -409,7 +456,7 @@ class BatchProcessor(object):
             cmds.setFocus(button)
             self.add_filter_children()
 
-        def set_to_filter(self, button):
+        def set_to_filter(self, button: str):
             """
             Sets the selection equal to the filter.
             :param button: The button connected to the action.
@@ -417,7 +464,7 @@ class BatchProcessor(object):
             self._children[0].include_children(False)
             self.add_filter(button)
 
-        def prune_fbx(self, state) -> bool:
+        def prune_fbx(self, state: bool) -> bool:
             """
             Disables and enables non-fbx files throughout the whole tree.
             :param state: If True, non-fbx files get disabled.
@@ -998,47 +1045,10 @@ class BatchProcessor(object):
         self._root = directory
         cmds.deleteUI(self.__files_layout)
         self.__files_layout = cmds.formLayout(p=self.__files_scroll)
-        self.__folder_structure = self.FileTree(self._root, 0, self.__files_layout)
-
-        parent_folders = [self.__folder_structure]
-        last_ui = self.__folder_structure.ui
-        folder_amount = [1]
 
         # -- Create the Tree -- #
-
-        file_iterator = os.walk(self._root)
-        for root, dirs, files in file_iterator:
-            # Get the parent and depth right
-            last_folder = parent_folders[-1]
-            depth = last_folder.depth + 1
-
-            # Create our root folder in our tree structure
-            new_folder = self.FileTree(root, depth, self.__files_layout, parent=last_folder)
-            last_folder.add_child(new_folder)
-            self.set_file_sys_frame(new_folder, last_ui)
-            last_ui = new_folder.ui
-
-            # Add all the files in this folder to this folder
-            for f in files:
-                path = os.path.join(root, f)
-                child_tree = self.FileTree(path, depth + 1, self.__files_layout, False, new_folder)
-                new_folder.add_child(child_tree)
-                self.set_file_sys_frame(child_tree, last_ui)
-                last_ui = child_tree.ui
-
-            # If this directory has sub-folders, add the directory to the parents
-            if len(dirs) != 0:
-                parent_folders.append(new_folder)
-                folder_amount.append(len(dirs))
-            else:
-                # If the parent folder has no more sub-folders, go one dir up.
-                folder_amount[-1] -= 1
-                while folder_amount[-1] == 0:
-                    folder_amount.pop()
-                    parent_folders.pop()
-                    if len(parent_folders) == 0:
-                        break
-                    folder_amount[-1] -= 1
+        self.__folder_structure = self.FileTree(self._root, 0)
+        self.__folder_structure.create_tree(self.__files_layout, True, None)
 
         # Set the source text field to the root.
         cmds.textField(source_field, e=True, text=self._root)
