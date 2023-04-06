@@ -469,6 +469,8 @@ class BatchProcessor(object):
             hidden = True
             for ch in self._children:
                 hidden = ch.filter_str(filter_str) and hidden
+                
+            cmds.rowLayout(self.ui, e=True, vis=not hidden)
 
             # Setting the error field in case all are hidden.
             cmds.text(error_field, e=True, visible=hidden)
@@ -480,9 +482,18 @@ class BatchProcessor(object):
             :return True if the FileTree did not get filtered out and a file was found.
             """
             # Directories
-            if len(self._children) > 0:
+            if self.__folder:
+                if len(self._children) == 0:
+                    hidden = filter_str != ""
+                    if self.load_helper is not None:
+                        self.load_helper.hide(hidden)
+                    self.__filtered = hidden
+                    cmds.rowLayout(self.ui, e=True, visible=not hidden)
+                    return hidden
+
                 # Check all children
                 hidden = True
+
                 if self.__collapsed:
                     self._collapse()
                 for ch in self._children:
@@ -490,23 +501,16 @@ class BatchProcessor(object):
 
                 # Hide or show the folder depending on whether anything was found in its children.
                 self.__filtered = hidden
-                if not hidden:
-                    cmds.rowLayout(self.ui, e=True, visible=True)
-                else:
-                    cmds.rowLayout(self.ui, e=True, visible=False)
+                cmds.rowLayout(self.ui, e=True, visible=not hidden)
                 return hidden
 
             # Files
             else:
                 # Check whether the files contain the filter string and (un)hide the UI accordingly.
-                if filter_str.casefold() not in self.name.casefold():
-                    self.__filtered = True
-                    cmds.rowLayout(self.ui, e=True, visible=False)
-                    return True
-                else:
-                    self.__filtered = False
-                    cmds.rowLayout(self.ui, e=True, visible=True)
-                    return False
+                hidden = filter_str.casefold() not in self.name.casefold()
+                self.__filtered = hidden
+                cmds.rowLayout(self.ui, e=True, visible=not hidden)
+                return hidden
 
         def add_filter_children(self):
             """
