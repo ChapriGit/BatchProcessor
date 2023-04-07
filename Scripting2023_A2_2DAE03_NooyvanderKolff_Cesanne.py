@@ -333,6 +333,10 @@ class BatchProcessor(object):
 
             # If depth limit has been reached, stop loading in more folders.
             if self.__depth == depth_limit:
+                with os.scandir(self.__root) as it:
+                    if not any(it):
+                        return self.ui, None
+
                 self.__load_helper = BatchProcessor.LoadObject(last_ui, self, layout, self.__depth + 1)
                 cmds.formLayout(layout, e=True,
                                 attachForm=[(self.__load_helper.ui, 'left', (self.__depth + 1) * 20),
@@ -697,7 +701,7 @@ class BatchProcessor(object):
         window.
         """
         # Create the window and set up the master layout.
-        cmds.window("AssetLibraryBatchProcessor", t="Asset Library Batch Processor", widthHeight=(900, 535),
+        cmds.window("AssetLibraryBatchProcessor", t="Asset Library Batch Processor", widthHeight=(900, 540),
                     cc=self.close)
         master_layout = cmds.columnLayout(adj=True, rs=15)
 
@@ -764,7 +768,7 @@ class BatchProcessor(object):
         # -- Setup of the Search bar -- #
 
         search = cmds.formLayout(p=file_layout)
-        search_label = cmds.text(l="Search files:", font="boldLabelFont", h=20)
+        search_label = cmds.text(l="Search files:*", font="boldLabelFont", h=20)
         search_field = cmds.textField(h=20)
         cmds.textField(search_field, e=True, cc=lambda _: self.__folder_structure.filter(search_field, filter_error))
 
@@ -775,16 +779,18 @@ class BatchProcessor(object):
         sel_filter_button = cmds.button(l="Set selection to search")
         cmds.button(sel_filter_button, e=True, c=lambda _: self.__folder_structure.set_to_filter(sel_filter_button))
 
+        warning_text = cmds.text(l="*Only takes loaded files into account", font="smallPlainLabelFont")
+
         # Set up the form layout
         cmds.formLayout(search, e=True, attachForm=[(search_label, "left", 10), (search_field, "right", 5),
                                                     (search_label, "top", 0), (search_field, "top", 0),
                                                     (sel_filter_button, "right", 5),
-                                                    (add_sel_filter_button, "bottom", 5),
-                                                    (sel_filter_button, "bottom", 5)],
+                                                    (warning_text, "bottom", 5), (warning_text, "right", 5)],
                         attachControl=[(search_field, "left", 15, search_label),
                                        (sel_filter_button, "top", 7, search_field),
                                        (add_sel_filter_button, "right", 5, sel_filter_button),
-                                       (add_sel_filter_button, "top", 7, search_field)])
+                                       (add_sel_filter_button, "top", 7, search_field),
+                                       (warning_text, "top", 5, add_sel_filter_button)])
 
         return file_layout
 
