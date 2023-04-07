@@ -203,7 +203,7 @@ class BatchProcessor(object):
             # Delete the old lay-outs and prepare a clean slate for the parent directory.
             cmds.deleteUI(self.__parent.ui)
             cmds.deleteUI(self.ui)
-            self.__parent.__load_helper = None
+            self.__parent.reset_load_helper()
 
             # Create the new tree and place it in the right spot in the lay-out.
             last_ui, load_helper = self.__parent.create_tree(self.__layout, True, self.node_up, self.__depth + 4)
@@ -308,6 +308,9 @@ class BatchProcessor(object):
             :return: A string containing the root path of the FileTree.
             """
             return self.__root
+
+        def reset_load_helper(self):
+            self.__load_helper = None
 
         def create_tree(self, layout: str, folder: bool, last_ui: str, depth_limit: int, load_helper=None):
             """
@@ -580,8 +583,7 @@ class BatchProcessor(object):
             if len(self._children) > 0:
                 for ch in self._children:
                     ch.add_filter_children()
-                if self.__parent is not None:
-                    self.__parent.child_include(True)
+                    
             # Files
             else:
                 if not self.__filtered:
@@ -602,7 +604,7 @@ class BatchProcessor(object):
             Sets the selection equal to the filter.
             :param button: The button connected to the action.
             """
-            self._children[0].include_children(False)
+            self.include_children(False)
             self.add_filter(button)
 
         def prune_fbx(self, state: bool) -> bool:
