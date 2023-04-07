@@ -806,10 +806,11 @@ class BatchProcessor(object):
         cmds.frameLayout(l="PROCESSES", w=350)
 
         # Setup of the picking of a Target directory.
-        target = cmds.formLayout(h=50)
+        target = cmds.formLayout(h=55)
         target_label = cmds.text(l="Target:", font="boldLabelFont", h=20)
         target_field = cmds.textField(h=20, ed=False, bgc=[0.2, 0.2, 0.2], text=self._dest)
         target_browse = cmds.button(l="Browse", h=20)
+
         cmds.formLayout(target, e=True, attachForm=[(target_label, "left", 10), (target_browse, "right", 5),
                                                     (target_label, "top", 16), (target_field, "top", 16),
                                                     (target_browse, "top", 15)],
@@ -1237,7 +1238,7 @@ class BatchProcessor(object):
         self.__write_to_log(f"{time.asctime()}: Processing of {len(files)} files. \n")
         timestamp = time.time()
 
-        process_text, process_bar, button = self.__show_progress(len(files))
+        process_text, stage_text, process_bar, button = self.__show_progress(len(files))
 
         # -- Processing -- #
         i = 0
@@ -1261,6 +1262,8 @@ class BatchProcessor(object):
             short_path, ext = os.path.splitext(path)
             fbx_obj = []
             if ext.casefold() == ".fbx":
+                cmds.text(stage_text, e=True, l="Importing")
+
                 # Get a selection of the files loaded in.
                 in_scene = cmds.ls(dag=True)
                 cmds.file(f, i=True)
@@ -1278,11 +1281,14 @@ class BatchProcessor(object):
 
                 # Processes
                 if self.scaling:
+                    cmds.text(stage_text, e=True, l="Adjusting dimensions")
                     warnings += self.__adjust_dimensions(fbx_obj, f)
                 if self.pivot:
+                    cmds.text(stage_text, e=True, l="Adjusting Pivot")
                     self.__adjust_pivots(fbx_obj)
 
                 # Write to fbx
+                cmds.text(stage_text, e=True, l="Exporting")
                 warnings += self.__write_file(fbx_obj, short_path)
 
                 # Clean up the maya scene
@@ -1291,6 +1297,8 @@ class BatchProcessor(object):
 
             else:
                 # Copy non-fbx files the normal way.
+                cmds.text(stage_text, e=True, l="Exporting non-fbx file")
+
                 if os.path.exists(path):
                     warnings += 1
                     self.__write_to_log(f"-- WARNING: {path} already existed. Original contents overridden.")
@@ -1304,6 +1312,7 @@ class BatchProcessor(object):
 
         # Final notes for the user.
         time_elapsed = time.time() - timestamp
+        cmds.text(stage_text, e=True, l="Finished")
         self.__mel_log(f"Files Processed: {i} out of {len(files)}")
         self.__write_to_log(f"\n Processing {i} out of {len(files)} finished in {time_elapsed} seconds with "
                             f"{warnings} warnings. \n")
@@ -1431,20 +1440,23 @@ class BatchProcessor(object):
         if cmds.window(self.__progress_window, ex=True):
             cmds.showWindow(self.__progress_window)
         else:
-            cmds.window(self.__progress_window, title="Processing in Progress", width=300, height=100)
+            cmds.window(self.__progress_window, title="Processing in Progress", width=300, height=110)
 
         # Create the form layout
         form = cmds.formLayout()
         text = cmds.text(l=f"0/{max_value} Files Processed")
+        text_stage = cmds.text(l="Setup")
         bar = cmds.progressBar(h=30, max=max_value)
         button = cmds.button(l="Close", c=lambda _: cmds.deleteUI(self.__progress_window), vis=False)
         cmds.formLayout(form, e=True, attachForm={(text, "top", 10), (bar, "left", 25), (bar, "right", 25),
                                                   (text, "left", 5), (text, "right", 5), (button, "left", 150),
-                                                  (button, "right", 150)},
-                        attachControl={(bar, "top", 15, text), (button, "top", 25, bar)})
+                                                  (button, "right", 150), (text_stage, "left", 5),
+                                                  (text_stage, "right", 5)},
+                        attachControl={(bar, "top", 15, text_stage), (button, "top", 25, bar),
+                                       (text_stage, "top", 5, text)})
         cmds.showWindow(self.__progress_window)
 
-        return text, bar, button
+        return text, text_stage, bar, button
 
     @staticmethod
     def __update_progress(text, bar, button, warnings):
