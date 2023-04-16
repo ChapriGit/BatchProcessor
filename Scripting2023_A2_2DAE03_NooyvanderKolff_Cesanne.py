@@ -147,7 +147,7 @@ class BatchProcessor(object):
         mel.eval(f'print "{"Result: " if result else ""} {comment}\\n"')
 
     @staticmethod
-    def error_message(fn, text: str, icn: str = "critical", title: str = "ERROR", *args, **kwargs):
+    def error_message(fn, text: str, icn: str = "critical", title: str = "Error", *args, **kwargs):
         """
         Creates an error prompt and reruns the given function with arguments.
 
@@ -210,6 +210,7 @@ class BatchProcessor(object):
             cmds.formLayout(self.__layout, e=True,
                             attachControl=[(self.node_down, 'top', 0, last_ui)])
             self.__parent.include_children(self.__included)
+            self.__parent.prune_fbx(self.__fbx_only)
 
             # In case the nodes up and down were Load Objects, update their neighbours.
             if self.__neighbour_loaders[1] is not None:
@@ -380,6 +381,7 @@ class BatchProcessor(object):
 
             # Create a checkbox for the lay-out.
             self.checkbox = cmds.checkBox(v=True, l="", height=15)
+
             self.label = cmds.text(label=self.name, align="left", font="plainLabelFont")
             cmds.checkBox(self.checkbox, e=True, cc=lambda _: self.include())
 
@@ -517,10 +519,16 @@ class BatchProcessor(object):
             else:
                 if not plain_font:
                     cmds.text(self.label, e=True, font="obliqueLabelFont")
+                    if not self.bolded and self.__parent is not None:
+                        self.__parent.child_include(state)
                     self.bolded = True
                 else:
                     cmds.text(self.label, e=True, font="plainLabelFont")
-                    self.bolded = False
+                    if self.bolded and self.__parent is not None:
+                        self.bolded = False
+                        self.__parent.child_include(state)
+                    else:
+                        self.bolded = False
 
         def filter(self, filter_field: str, error_field: str):
             """
@@ -623,13 +631,14 @@ class BatchProcessor(object):
             if len(self._children) > 0:
                 for ch in self._children:
                     pruned = ch.prune_fbx(state) and pruned
-                if self.__load_helper is not None:
-                    self.__load_helper.prune_fbx(state)
                 cmds.checkBox(self.checkbox, e=True, en=not pruned)
                 return pruned
 
             # Files
             elif self.__depth > 0:
+                if self.__load_helper is not None:
+                    self.__load_helper.prune_fbx(state)
+                    return pruned
                 if not self.name.casefold().endswith(".fbx"):
                     cmds.checkBox(self.checkbox, e=True, en=not pruned)
                     return pruned
@@ -701,7 +710,7 @@ class BatchProcessor(object):
         window.
         """
         # Create the window and set up the master layout.
-        cmds.window("AssetLibraryBatchProcessor", t="Asset Library Batch Processor", widthHeight=(900, 540),
+        cmds.window("AssetLibraryBatchProcessor", t="Asset Library Batch Processor", widthHeight=(900, 545),
                     cc=self.close)
         master_layout = cmds.columnLayout(adj=True, rs=15)
 
@@ -928,12 +937,13 @@ class BatchProcessor(object):
         scale_row = cmds.columnLayout(adj=True, p=checkbox_layout, visible=self.allow_stretching)
         cmds.rowLayout(nc=4)
         cmds.text(l="Scaling", w=50, h=20)
+        # Next time, could just use a floatField, but don't exactly feel like changing it anymore
         scale_x = cmds.textField(w=button_width, text=self.scale[0])
         cmds.textField(scale_x, e=True, cc=lambda u_input: self.check_text_fields(scale_x, u_input, 0))
         scale_y = cmds.textField(w=button_width, text=self.scale[1])
-        cmds.textField(scale_y, e=True, cc=lambda u_input: self.check_text_fields(scale_x, u_input, 1))
+        cmds.textField(scale_y, e=True, cc=lambda u_input: self.check_text_fields(scale_y, u_input, 1))
         scale_z = cmds.textField(w=button_width, text=self.scale[2])
-        cmds.textField(scale_z, e=True, cc=lambda u_input: self.check_text_fields(scale_x, u_input, 2))
+        cmds.textField(scale_z, e=True, cc=lambda u_input: self.check_text_fields(scale_z, u_input, 2))
 
         # Layout in case of no stretching allowed
         non_stretch = cmds.columnLayout(p=checkbox_layout, visible=not self.allow_stretching)
@@ -1281,7 +1291,7 @@ class BatchProcessor(object):
 
                 # Processes
                 if self.scaling:
-                    cmds.text(stage_text, e=True, l="Adjusting dimensions")
+                    cmds.text(stage_text, e=True, l="Adjusting Dimensions")
                     warnings += self.__adjust_dimensions(fbx_obj, f)
                 if self.pivot:
                     cmds.text(stage_text, e=True, l="Adjusting Pivot")
