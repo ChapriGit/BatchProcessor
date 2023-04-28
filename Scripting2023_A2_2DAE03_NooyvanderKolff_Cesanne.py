@@ -20,6 +20,10 @@ from maya import cmds, mel
 
 
 class BatchProcessor(object):
+    """
+    A class for the processing of asset libraries in Maya. The batch processor is able to display files systems and
+    perform processes like scaling and the changing of pivots.
+    """
     __OPTION_VAR_NAME = "Batch_Processor_Prefs"
     __PREF_FILE_NAME = "AL_BatchProcessor_Prefs.json"
 
@@ -311,6 +315,9 @@ class BatchProcessor(object):
             return self.__root
 
         def reset_load_helper(self):
+            """
+            Sets the load helper to None.
+            """
             self.__load_helper = None
 
         def create_tree(self, layout: str, folder: bool, last_ui: str, depth_limit: int, load_helper=None):
